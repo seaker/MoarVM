@@ -298,7 +298,8 @@ static void bytecode_dump_frame_internal(MVMThreadContext *tc, MVMStaticFrame *f
             }
             else if (op_rw == MVM_operand_read_lex || op_rw == MVM_operand_write_lex) {
                 /* lexical operand */
-                MVMuint16 idx, frames, m;
+                MVMuint16 idx, frames;
+                MVMuint32 m;
                 MVMStaticFrame *applicable_frame = static_frame;
 
                 operand_size = 4;
@@ -430,19 +431,21 @@ char * MVM_bytecode_dump(MVMThreadContext *tc, MVMCompUnit *cu) {
             MVMCallsiteEntry csitee = callsite->arg_flags[i++];
             a("    Arg %u :", i);
             if (csitee & MVM_CALLSITE_ARG_NAMED) {
-                if (callsite->arg_names) {
-                    char *arg_name = MVM_string_utf8_encode_C_string(tc,
-                        callsite->arg_names[nameds_count++]);
-                    a(" named(%s)", arg_name);
-                    MVM_free(arg_name);
+                if (csitee & MVM_CALLSITE_ARG_FLAT) {
+                    a(" flatnamed");
                 }
                 else {
-                    a(" named");
+                    if (callsite->arg_names) {
+                        char *arg_name = MVM_string_utf8_encode_C_string(tc,
+                            callsite->arg_names[nameds_count++]);
+                        a(" named(%s)", arg_name);
+                        MVM_free(arg_name);
+                    }
+                    else {
+                        a(" named");
+                    }
+                    j++;
                 }
-                j++;
-            }
-            else if (csitee & MVM_CALLSITE_ARG_FLAT_NAMED) {
-                a(" flatnamed");
             }
             else if (csitee & MVM_CALLSITE_ARG_FLAT) {
                 a(" flat");
@@ -450,6 +453,7 @@ char * MVM_bytecode_dump(MVMThreadContext *tc, MVMCompUnit *cu) {
             else a(" positional");
             if (csitee & MVM_CALLSITE_ARG_OBJ) a(" obj");
             else if (csitee & MVM_CALLSITE_ARG_INT) a(" int");
+            else if (csitee & MVM_CALLSITE_ARG_UINT) a(" uint");
             else if (csitee & MVM_CALLSITE_ARG_NUM) a(" num");
             else if (csitee & MVM_CALLSITE_ARG_STR) a(" str");
             if (csitee & MVM_CALLSITE_ARG_FLAT) a(" flat");

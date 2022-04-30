@@ -41,6 +41,17 @@ static void compose(MVMThreadContext *tc, MVMSTable *st, MVMObject *info_hash) {
             }
             repr_data->elem_kind = MVM_CARRAY_ELEM_KIND_NUMERIC;
         }
+        else if (ss->boxed_primitive == MVM_STORAGE_SPEC_BP_UINT64) {
+            if (ss->bits == 8 || ss->bits == 16 || ss->bits == 32 || ss->bits == 64)
+                repr_data->elem_size = ss->bits / 8;
+            else {
+                MVM_free(repr_data);
+                st->REPR_data = NULL;
+                MVM_exception_throw_adhoc(tc,
+                    "CArray representation can only have 8, 16, 32 or 64 bit unsigned integer elements");
+            }
+            repr_data->elem_kind = MVM_CARRAY_ELEM_KIND_NUMERIC;
+        }
         else if (ss->boxed_primitive == MVM_STORAGE_SPEC_BP_NUM) {
             if (ss->bits == 32 || ss->bits == 64)
                 repr_data->elem_size = ss->bits / 8;
@@ -100,7 +111,7 @@ static void initialize(MVMThreadContext *tc, MVMSTable *st, MVMObject *root, voi
     if (!repr_data)
         MVM_exception_throw_adhoc(tc, "CArray type must be composed before use");
 
-    body->storage = MVM_calloc(4, repr_data->elem_size);
+    body->storage = calloc(4, repr_data->elem_size);
     body->managed = 1;
 
     /* Don't need child_objs for numerics. */
@@ -121,7 +132,7 @@ static void copy_to(MVMThreadContext *tc, MVMSTable *st, void *src, MVMObject *d
 
     if (src_body->managed) {
         MVMint32 alsize = src_body->allocated * repr_data->elem_size;
-        dest_body->storage = MVM_malloc(alsize);
+        dest_body->storage = malloc(alsize);
         memcpy(dest_body->storage, src_body->storage, alsize);
     }
     else {
@@ -145,7 +156,7 @@ static void gc_cleanup(MVMThreadContext *tc, MVMSTable *st, void *data) {
                 MVM_free( ((void **)body->storage)[i] );
             }
         }
-        MVM_free(body->storage);
+        free(body->storage);
     }
     if (body->child_objs)
         MVM_free(body->child_objs);
@@ -211,10 +222,11 @@ static void expand(MVMThreadContext *tc, MVMCArrayREPRData *repr_data, MVMCArray
         next_size = min_size;
 
     if (body->managed) {
-        const size_t old_size = body->allocated * repr_data->elem_size;
-        const size_t new_size = next_size * repr_data->elem_size;
+        const size_t old_size = (size_t) body->allocated * repr_data->elem_size;
+        const size_t new_size = (size_t) next_size * repr_data->elem_size;
 
-        body->storage = MVM_recalloc(body->storage, old_size, new_size);
+        body->storage = realloc(body->storage, new_size);
+        memset((char *)body->storage + old_size, 0, new_size - old_size);
     }
 
     is_complex = (repr_data->elem_kind == MVM_CARRAY_ELEM_KIND_CARRAY
@@ -225,8 +237,8 @@ static void expand(MVMThreadContext *tc, MVMCArrayREPRData *repr_data, MVMCArray
                || repr_data->elem_kind == MVM_CARRAY_ELEM_KIND_STRING);
 
     if (is_complex) {
-        const size_t old_size = body->allocated * sizeof(MVMObject *);
-        const size_t new_size = next_size * sizeof(MVMObject *);
+        const size_t old_size = (size_t) body->allocated * sizeof(MVMObject *);
+        const size_t new_size = (size_t) next_size * sizeof(MVMObject *);
 
         body->child_objs = (MVMObject **) MVM_recalloc(body->child_objs, old_size, new_size);
     }
@@ -262,6 +274,11 @@ static void at_pos(MVMThreadContext *tc, MVMSTable *st, MVMObject *root, void *d
                 value->i64 = body->managed && index >= body->elems
                     ? 0
                     : REPR(repr_data->elem_type)->box_funcs.get_int(tc,
+                        STABLE(repr_data->elem_type), root, ptr);
+            else if (kind == MVM_reg_uint64)
+                value->u64 = body->managed && index >= body->elems
+                    ? 0
+                    : REPR(repr_data->elem_type)->box_funcs.get_uint(tc,
                         STABLE(repr_data->elem_type), root, ptr);
             else if (kind == MVM_reg_num64)
                 value->n64 = body->managed && index >= body->elems
@@ -364,6 +381,9 @@ static void bind_pos(MVMThreadContext *tc, MVMSTable *st, MVMObject *root, void 
             if (kind == MVM_reg_int64)
                 REPR(repr_data->elem_type)->box_funcs.set_int(tc,
                     STABLE(repr_data->elem_type), root, ptr, value.i64);
+            else if (kind == MVM_reg_uint64)
+                REPR(repr_data->elem_type)->box_funcs.set_uint(tc,
+                    STABLE(repr_data->elem_type), root, ptr, value.u64);
             else if (kind == MVM_reg_num64)
                 REPR(repr_data->elem_type)->box_funcs.set_num(tc,
                     STABLE(repr_data->elem_type), root, ptr, value.n64);
@@ -448,7 +468,7 @@ static MVMuint64 unmanaged_size(MVMThreadContext *tc, MVMSTable *st, void *data)
     MVMuint64 result = 0;
 
     /* The allocated (or just-pointed-at) memory block */
-    result += body->allocated * repr_data->elem_size;
+    result += (MVMuint64) body->allocated * repr_data->elem_size;
 
     /* The array we hold wrapper objects in */
     if (body->child_objs)
@@ -473,19 +493,9 @@ static void serialize_repr_data(MVMThreadContext *tc, MVMSTable *st, MVMSerializ
 static void deserialize_repr_data(MVMThreadContext *tc, MVMSTable *st, MVMSerializationReader *reader) {
     MVMCArrayREPRData *repr_data = (MVMCArrayREPRData *) MVM_malloc(sizeof(MVMCArrayREPRData));
 
-    if (reader->root.version >= 19) {
-        repr_data->elem_size = MVM_serialization_read_int(tc, reader);
-    } else {
-        repr_data->elem_size = MVM_serialization_read_int64(tc, reader);
-    }
-
+    repr_data->elem_size = MVM_serialization_read_int(tc, reader);
     repr_data->elem_type = MVM_serialization_read_ref(tc, reader);
-
-    if (reader->root.version >= 19) {
-        repr_data->elem_kind = MVM_serialization_read_int(tc, reader);
-    } else {
-        repr_data->elem_kind = MVM_serialization_read_int64(tc, reader);
-    }
+    repr_data->elem_kind = MVM_serialization_read_int(tc, reader);
 
     st->REPR_data = repr_data;
 }

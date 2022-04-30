@@ -2,9 +2,9 @@
 
 /* Some constants. */
 #define HEADER_SIZE                 92
-#define MIN_BYTECODE_VERSION        5
+#define MIN_BYTECODE_VERSION        7
 #define MAX_BYTECODE_VERSION        7
-#define FRAME_HEADER_SIZE           (11 * 4 + 3 * 2 + (bytecode_version >= 6 ? 4 : 0))
+#define FRAME_HEADER_SIZE           (11 * 4 + 3 * 2 + 4)
 #define FRAME_HANDLER_SIZE          (4 * 4 + 2 * 2)
 #define FRAME_SLV_SIZE              (2 * 2 + 2 * 4)
 #define FRAME_DEBUG_NAME_SIZE       (2 + 4)
@@ -139,7 +139,7 @@ static MVMString * get_heap_string(MVMThreadContext *tc, MVMCompUnit *cu, Reader
 static ReaderState * dissect_bytecode(MVMThreadContext *tc, MVMCompUnit *cu) {
     MVMCompUnitBody *cu_body = &cu->body;
     ReaderState *rs = NULL;
-    MVMuint32 version, offset, size, version7_offset = 0;
+    MVMuint32 version, offset, size;
 
     /* Sanity checks. */
     if (cu_body->data_size < HEADER_SIZE)
@@ -240,13 +240,11 @@ static ReaderState * dissect_bytecode(MVMThreadContext *tc, MVMCompUnit *cu) {
 
     /* Locate special frame indexes. Note, they are 0 for none, and the
      * index + 1 if there is one. */
-    if (version >= 7) {
-        rs->mainline_frame = read_int32(cu_body->data_start, SPECIAL_FRAME_HEADER_OFFSET);
-        version7_offset = 4;
-    }
-    rs->main_frame = read_int32(cu_body->data_start, SPECIAL_FRAME_HEADER_OFFSET + version7_offset);
-    rs->load_frame = read_int32(cu_body->data_start, SPECIAL_FRAME_HEADER_OFFSET + 4 + version7_offset);
-    rs->deserialize_frame = read_int32(cu_body->data_start, SPECIAL_FRAME_HEADER_OFFSET + 8 + version7_offset);
+    rs->mainline_frame = read_int32(cu_body->data_start, SPECIAL_FRAME_HEADER_OFFSET);
+
+    rs->main_frame = read_int32(cu_body->data_start, SPECIAL_FRAME_HEADER_OFFSET + 4);
+    rs->load_frame = read_int32(cu_body->data_start, SPECIAL_FRAME_HEADER_OFFSET + 8);
+    rs->deserialize_frame = read_int32(cu_body->data_start, SPECIAL_FRAME_HEADER_OFFSET + 12);
     if (rs->mainline_frame > rs->expected_frames
             || rs->main_frame > rs->expected_frames
             || rs->load_frame > rs->expected_frames
@@ -470,7 +468,6 @@ static MVMStaticFrame ** deserialize_frames(MVMThreadContext *tc, MVMCompUnit *c
     MVMStaticFrame **frames;
     MVMuint8        *pos;
     MVMuint32        bytecode_pos, bytecode_size, i, j;
-    MVMuint16        bytecode_version = rs->version;
 
     /* Allocate frames array. */
     if (rs->expected_frames == 0) {
@@ -540,18 +537,14 @@ static MVMStaticFrame ** deserialize_frames(MVMThreadContext *tc, MVMCompUnit *c
         static_frame_body->num_handlers = read_int32(pos, 34);
 
         /* Read exit handler flag (version 2 and higher). */
-        if (rs->version >= 2) {
-            MVMint16 flags = read_int16(pos, 38);
-            static_frame_body->has_exit_handler = flags & FRAME_FLAG_EXIT_HANDLER;
-            static_frame_body->is_thunk         = flags & FRAME_FLAG_IS_THUNK;
-            static_frame_body->no_inline        = flags & FRAME_FLAG_NO_INLINE;
-        }
+        MVMint16 flags = read_int16(pos, 38);
+        static_frame_body->has_exit_handler = flags & FRAME_FLAG_EXIT_HANDLER;
+        static_frame_body->is_thunk         = flags & FRAME_FLAG_IS_THUNK;
+        static_frame_body->no_inline        = flags & FRAME_FLAG_NO_INLINE;
 
         /* Read code object SC indexes (version 4 and higher). */
-        if (rs->version >= 4) {
-            static_frame_body->code_obj_sc_dep_idx = read_int32(pos, 42);
-            static_frame_body->code_obj_sc_idx     = read_int32(pos, 46);
-        }
+        static_frame_body->code_obj_sc_dep_idx = read_int32(pos, 42);
+        static_frame_body->code_obj_sc_idx     = read_int32(pos, 46);
 
         /* Associate frame with compilation unit. */
         MVM_ASSIGN_REF(tc, &(static_frame->common.header), static_frame_body->cu, cu);
@@ -564,7 +557,7 @@ static MVMStaticFrame ** deserialize_frames(MVMThreadContext *tc, MVMCompUnit *c
             MVMuint32 skip = 2 * static_frame_body->num_locals +
                              6 * static_frame_body->num_lexicals;
             MVMuint16 slvs = read_int16(pos, 40);
-            MVMuint32 num_local_debug_names = rs->version >= 6 ? read_int32(pos, 50) : 0;
+            MVMuint32 num_local_debug_names = read_int32(pos, 50);
             pos += FRAME_HEADER_SIZE;
             ensure_can_read(tc, cu, rs, pos, skip);
             pos += skip;
@@ -609,7 +602,6 @@ void MVM_bytecode_finish_frame(MVMThreadContext *tc, MVMCompUnit *cu,
     MVMuint32 j, num_debug_locals;
     MVMuint8 *pos;
     MVMuint16 slvs;
-    MVMuint16 bytecode_version = cu->body.bytecode_version;
 
     /* Ensure we've not already done this. */
     if (sf->body.fully_deserialized)
@@ -632,7 +624,7 @@ void MVM_bytecode_finish_frame(MVMThreadContext *tc, MVMCompUnit *cu,
     /* Get the number of static lex values and debug local names we'll need
      * to apply. */
     slvs = read_int16(pos, 40);
-    num_debug_locals = bytecode_version >= 6 ? read_int16(pos, 50) : 0;
+    num_debug_locals = read_int16(pos, 50);
 
     /* Skip past header. */
     pos += FRAME_HEADER_SIZE;
@@ -818,6 +810,22 @@ MVMuint8 MVM_bytecode_find_static_lexical_scref(MVMThreadContext *tc, MVMCompUni
     return 0;
 }
 
+MVM_NO_RETURN static void report_deserialize_callsites_violation(MVMThreadContext *tc, ReaderState *rs,
+                                                                 MVMCallsite **callsites, MVMuint32 i, MVMuint32 j, const char *violation) {
+    MVMuint32 k;
+    for (k = 0; k <= i; k++) {
+        if (!callsites[k]->is_interned) {
+            MVM_free(callsites[k]->arg_flags);
+            MVM_free_null(callsites[k]);
+        }
+    }
+    MVM_fixed_size_free(tc, tc->instance->fsa,
+                        sizeof(MVMCallsite *) * rs->expected_callsites,
+                        callsites);
+    MVM_exception_throw_adhoc(tc, "%s, violated by arg %d in callsite %d",
+                              violation, j, i);
+}
+
 /* Loads the callsites. */
 static MVMCallsite ** deserialize_callsites(MVMThreadContext *tc, MVMCompUnit *cu, ReaderState *rs) {
     MVMCallsite **callsites;
@@ -864,68 +872,34 @@ static MVMCallsite ** deserialize_callsites(MVMThreadContext *tc, MVMCompUnit *c
          * before all nameds (flattening named counts as named). */
         for (j = 0; j < elems; j++) {
             if (callsites[i]->arg_flags[j] & MVM_CALLSITE_ARG_FLAT) {
-                if (!(callsites[i]->arg_flags[j] & MVM_CALLSITE_ARG_OBJ)) {
-                    MVMuint32 k;
-                    for (k = 0; k <= i; k++) {
-                        if (!callsites[i]->is_interned) {
-                            MVM_free(callsites[i]->arg_flags);
-                            MVM_free_null(callsites[i]);
-                        }
+                if (callsites[i]->arg_flags[j] & MVM_CALLSITE_ARG_NAMED) {
+                    if (!(callsites[i]->arg_flags[j] & MVM_CALLSITE_ARG_OBJ)) {
+                        report_deserialize_callsites_violation(tc, rs, callsites, i, j,
+                                                               "Flattened named args must be objects");
                     }
-                    MVM_fixed_size_free(tc, tc->instance->fsa,
-                        sizeof(MVMCallsite *) * rs->expected_callsites,
-                        callsites);
-                    MVM_exception_throw_adhoc(tc, "Flattened positional args must be objects");
+                    has_flattening = 1;
+                    nameds_slots++;
                 }
-                if (nameds_slots) {
-                    MVMuint32 k;
-                    for (k = 0; k <= i; k++) {
-                        if (!callsites[i]->is_interned) {
-                            MVM_free(callsites[i]->arg_flags);
-                            MVM_free_null(callsites[i]);
-                        }
+                else {
+                    if (!(callsites[i]->arg_flags[j] & MVM_CALLSITE_ARG_OBJ)) {
+                        report_deserialize_callsites_violation(tc, rs, callsites, i, j,
+                                                               "Flattened positional args must be objects");
                     }
-                    MVM_fixed_size_free(tc, tc->instance->fsa,
-                        sizeof(MVMCallsite *) * rs->expected_callsites,
-                        callsites);
-                    MVM_exception_throw_adhoc(tc, "Flattened positional args must appear before named args");
-                }
-                has_flattening = 1;
-                positionals++;
-            }
-            else if (callsites[i]->arg_flags[j] & MVM_CALLSITE_ARG_FLAT_NAMED) {
-                if (!(callsites[i]->arg_flags[j] & MVM_CALLSITE_ARG_OBJ)) {
-                    MVMuint32 k;
-                    for (k = 0; k <= i; k++) {
-                        if (!callsites[i]->is_interned) {
-                            MVM_free(callsites[i]->arg_flags);
-                            MVM_free_null(callsites[i]);
-                        }
+                    if (nameds_slots) {
+                        report_deserialize_callsites_violation(tc, rs, callsites, i, j,
+                                                               "Flattened positional args must appear before named args");
                     }
-                    MVM_fixed_size_free(tc, tc->instance->fsa,
-                        sizeof(MVMCallsite *) * rs->expected_callsites,
-                        callsites);
-                    MVM_exception_throw_adhoc(tc, "Flattened named args must be objects");
+                    has_flattening = 1;
+                    positionals++;
                 }
-                has_flattening = 1;
-                nameds_slots++;
             }
             else if (callsites[i]->arg_flags[j] & MVM_CALLSITE_ARG_NAMED) {
                 nameds_slots += 2;
                 nameds_non_flattening++;
             }
             else if (nameds_slots) {
-                MVMuint32 k;
-                for (k = 0; k <= i; k++) {
-                    if (!callsites[i]->is_interned) {
-                        MVM_free(callsites[i]->arg_flags);
-                        MVM_free_null(callsites[i]);
-                    }
-                }
-                MVM_fixed_size_free(tc, tc->instance->fsa,
-                    sizeof(MVMCallsite *) * rs->expected_callsites,
-                        callsites);
-                MVM_exception_throw_adhoc(tc, "All positional args must appear before named args, violated by arg %d in callsite %d", j, i);
+                report_deserialize_callsites_violation(tc, rs, callsites, i, j,
+                                                       "All positional args must appear before named args");
             }
             else {
                 positionals++;
@@ -936,7 +910,7 @@ static MVMCallsite ** deserialize_callsites(MVMThreadContext *tc, MVMCompUnit *c
         callsites[i]->has_flattening = has_flattening;
         callsites[i]->is_interned    = 0;
 
-        if (rs->version >= 3 && nameds_non_flattening) {
+        if (nameds_non_flattening) {
             ensure_can_read(tc, cu, rs, pos, nameds_non_flattening * 4);
             callsites[i]->arg_names = MVM_malloc(nameds_non_flattening * sizeof(MVMString*));
             for (j = 0; j < nameds_non_flattening; j++) {

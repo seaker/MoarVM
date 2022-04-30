@@ -2,10 +2,14 @@
 
 /* Debug dumping, to figure out what we're recording and what programs we are
  * inferring from those recordings. */
-#define DUMP_RECORDINGS     0
-#define DUMP_PROGRAMS       0
+#ifndef MVM_DISP_DUMP_RECORDINGS
+#define MVM_DISP_DUMP_RECORDINGS     0
+#endif
+#ifndef MVM_DISP_DUMP_PROGRAMS
+#define MVM_DISP_DUMP_PROGRAMS       0
+#endif
 
-#if DUMP_RECORDINGS
+#if MVM_DISP_DUMP_RECORDINGS
 static void dump_recording_capture(MVMThreadContext *tc,
         MVMDispProgramRecordingCapture *capture, MVMuint32 indent,
         MVMDispProgramRecording *rec) {
@@ -68,6 +72,10 @@ static void dump_recording_values(MVMThreadContext *tc, MVMDispProgramRecording 
                     case MVM_CALLSITE_ARG_INT:
                         fprintf(stderr, "    %d Literal int value %"PRId64"\n", i,
                                 v->literal.value.i64);
+                        break;
+                    case MVM_CALLSITE_ARG_UINT:
+                        fprintf(stderr, "    %d Literal uint value %"PRIu64"\n", i,
+                                v->literal.value.u64);
                         break;
                     case MVM_CALLSITE_ARG_NUM:
                         fprintf(stderr, "    %d Literal num value %g\n", i,
@@ -166,9 +174,9 @@ static void dump_recording(MVMThreadContext *tc, MVMCallStackDispatchRecord *rec
 }
 #else
 #define dump_recording(tc, r) do {} while (0)
-#endif
+#endif /* MVM_DISP_DUMP_RECORDINGS */
 
-#if DUMP_PROGRAMS
+#if MVM_DISP_DUMP_PROGRAMS
 static void dump_program(MVMThreadContext *tc, MVMDispProgram *dp) {
     if (dp->first_args_temporary == dp->num_temporaries)
         fprintf(stderr, "Dispatch program %p (%d temporaries)\n", dp, dp->num_temporaries);
@@ -197,14 +205,14 @@ static void dump_program(MVMThreadContext *tc, MVMDispProgram *dp) {
                 char *c_str = MVM_string_utf8_encode_C_string(tc,
                        op->resume.disp->id);
                 fprintf(stderr, "    Resume topmost dispatch if it is %s\n", c_str);
-                free(c_str);
+                MVM_free(c_str);
                 break;
             }
             case MVMDispOpcodeResumeCaller: {
                 char *c_str = MVM_string_utf8_encode_C_string(tc,
                        op->resume.disp->id);
                 fprintf(stderr, "    Resume caller dispatch if it is %s\n", c_str);
-                free(c_str);
+                MVM_free(c_str);
                 break;
             }
             case MVMDispOpcodeGuardResumeInitCallsite:
@@ -486,7 +494,7 @@ static void dump_program(MVMThreadContext *tc, MVMDispProgram *dp) {
 }
 #else
 #define dump_program(tc, dp) do {} while (0)
-#endif
+#endif /* MVM_DISP_DUMP_PROGRAMS */
 
 /* Run a dispatch callback, which will record a dispatch program. */
 static MVMFrame * find_calling_frame(MVMThreadContext *tc, MVMCallStackRecord *prev) {
@@ -706,6 +714,10 @@ static MVMuint32 value_index_constant(MVMThreadContext *tc, MVMDispProgramRecord
                     break;
                 case MVM_CALLSITE_ARG_INT:
                     if (v->literal.value.i64 == value.i64)
+                        return i;
+                    break;
+                case MVM_CALLSITE_ARG_UINT:
+                    if (v->literal.value.u64 == value.u64)
                         return i;
                     break;
                 case MVM_CALLSITE_ARG_NUM:
@@ -1062,6 +1074,7 @@ MVMObject * MVM_disp_program_record_track_attr(MVMThreadContext *tc, MVMObject *
                 attr_value.o = tc->instance->VMNull;
             break;
         case MVM_CALLSITE_ARG_INT:
+        case MVM_CALLSITE_ARG_UINT:
             attr_value.i64 = MVM_p6opaque_read_int64(tc, read_from, offset);
             break;
         case MVM_CALLSITE_ARG_NUM:
@@ -1688,7 +1701,7 @@ static void ensure_resume_ok(MVMThreadContext *tc, MVMCallStackDispatchRecord *r
 }
 
 /* Form a capture from the resume initialization arguments. */
-MVMObject * resume_init_capture(MVMThreadContext *tc, MVMDispResumptionData *resume_data,
+static MVMObject * resume_init_capture(MVMThreadContext *tc, MVMDispResumptionData *resume_data,
         MVMDispProgramRecordingResumption *rec_resumption) {
     MVMDispProgramResumption *resumption = resume_data->resumption;
     MVMCallsite *callsite = resumption->init_callsite;
@@ -1712,7 +1725,7 @@ MVMObject * resume_init_capture(MVMThreadContext *tc, MVMDispResumptionData *res
 
 /* Set up another level of dispatch resumption in the resumptions list. Used
  * for both the initial resume and falling back on the next resumption. */
-void push_resumption(MVMThreadContext *tc, MVMCallStackDispatchRecord *record,
+static void push_resumption(MVMThreadContext *tc, MVMCallStackDispatchRecord *record,
         MVMDispResumptionData *resume_data) {
     MVMDispProgramRecordingResumption rec_resumption;
     rec_resumption.initial_resume_capture.transformation = MVMDispProgramRecordingResumeInitial;
@@ -1730,7 +1743,7 @@ void push_resumption(MVMThreadContext *tc, MVMCallStackDispatchRecord *record,
 }
 
 /* Record the initial resumption of a dispatch. */
-void record_resume(MVMThreadContext *tc, MVMObject *capture, MVMDispResumptionData *resume_data,
+static void record_resume(MVMThreadContext *tc, MVMObject *capture, MVMDispResumptionData *resume_data,
         MVMDispProgramRecordingResumeKind resume_kind) {
     /* Make sure we're in a dispatcher and that we didn't already call resume. */
     MVMCallStackDispatchRecord *record = MVM_callstack_find_topmost_dispatch_recording(tc);
@@ -1871,6 +1884,7 @@ void MVM_disp_program_record_result_constant(MVMThreadContext *tc, MVMCallsiteFl
     switch (kind) {
         case MVM_CALLSITE_ARG_OBJ: record->outcome.result_kind = MVM_reg_obj; break;
         case MVM_CALLSITE_ARG_INT: record->outcome.result_kind = MVM_reg_int64; break;
+        case MVM_CALLSITE_ARG_UINT: record->outcome.result_kind = MVM_reg_uint64; break;
         case MVM_CALLSITE_ARG_NUM: record->outcome.result_kind = MVM_reg_num64; break;
         case MVM_CALLSITE_ARG_STR: record->outcome.result_kind = MVM_reg_str; break;
         default: MVM_oops(tc, "Unknown capture value type in boot-constant dispatch");
@@ -1890,6 +1904,7 @@ void MVM_disp_program_record_result_tracked_value(MVMThreadContext *tc, MVMObjec
     switch (((MVMTracked *)tracked)->body.kind) {
         case MVM_CALLSITE_ARG_OBJ: record->outcome.result_kind = MVM_reg_obj; break;
         case MVM_CALLSITE_ARG_INT: record->outcome.result_kind = MVM_reg_int64; break;
+        case MVM_CALLSITE_ARG_UINT: record->outcome.result_kind = MVM_reg_uint64; break;
         case MVM_CALLSITE_ARG_NUM: record->outcome.result_kind = MVM_reg_num64; break;
         case MVM_CALLSITE_ARG_STR: record->outcome.result_kind = MVM_reg_str; break;
         default: MVM_oops(tc, "Unknown capture value type in boot-value dispatch");
@@ -2127,6 +2142,10 @@ static MVMuint32 get_temp_holding_value(MVMThreadContext *tc, compile_state *cs,
                     op.code = MVMDispOpcodeLoadConstantInt;
                     op.load.idx = add_program_constant_int(tc, cs, v->literal.value.i64);
                     break;
+                case MVM_CALLSITE_ARG_UINT:
+                    op.code = MVMDispOpcodeLoadConstantInt;
+                    op.load.idx = add_program_constant_int(tc, cs, v->literal.value.u64);
+                    break;
                 case MVM_CALLSITE_ARG_NUM:
                     op.code = MVMDispOpcodeLoadConstantNum;
                     op.load.idx = add_program_constant_num(tc, cs, v->literal.value.n64);
@@ -2155,6 +2174,7 @@ static MVMuint32 get_temp_holding_value(MVMThreadContext *tc, compile_state *cs,
                     op.code = MVMDispOpcodeLoadAttributeStr;
                     break;
                 case MVM_CALLSITE_ARG_INT:
+                case MVM_CALLSITE_ARG_UINT:
                     op.code = MVMDispOpcodeLoadAttributeInt;
                     break;
                 case MVM_CALLSITE_ARG_NUM:
@@ -2303,6 +2323,7 @@ static void emit_capture_guards(MVMThreadContext *tc, compile_state *cs,
             }
             break;
         case MVM_CALLSITE_ARG_INT:
+        case MVM_CALLSITE_ARG_UINT:
             if (v->guard_literal) {
                 MVMDispProgramOp op;
                 op.code = MVMDispOpcodeGuardArgLiteralInt;
@@ -2394,6 +2415,7 @@ static void emit_loaded_value_guards(MVMThreadContext *tc, compile_state *cs,
             }
             break;
         case MVM_CALLSITE_ARG_INT:
+        case MVM_CALLSITE_ARG_UINT:
             if (v->guard_literal) {
                 MVMDispProgramOp op;
                 op.code = MVMDispOpcodeGuardTempLiteralInt;
@@ -2753,6 +2775,7 @@ static void produce_resumption_init_values(MVMThreadContext *tc, compile_state *
                                     (MVMCollectable *)value->literal.value.o);
                             break;
                         case MVM_CALLSITE_ARG_INT:
+                        case MVM_CALLSITE_ARG_UINT:
                             init->source = MVM_DISP_RESUME_INIT_CONSTANT_INT;
                             init->index = add_program_constant_int(tc, cs,
                                     value->literal.value.i64);
@@ -3777,7 +3800,7 @@ void MVM_disp_program_destroy(MVMThreadContext *tc, MVMDispProgram *dp) {
 }
 
 /* Free the memory associated with a dispatch program recording. */
-void destroy_recording_capture(MVMThreadContext *tc, MVMDispProgramRecordingCapture *cap) {
+static void destroy_recording_capture(MVMThreadContext *tc, MVMDispProgramRecordingCapture *cap) {
     MVMuint32 i;
     for (i = 0; i < MVM_VECTOR_ELEMS(cap->captures); i++)
         destroy_recording_capture(tc, &(cap->captures[i]));

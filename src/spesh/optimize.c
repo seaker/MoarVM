@@ -648,6 +648,12 @@ static void optimize_decont(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *
                         box_op = MVM_OP_box_i;
                         unbox_op = MVM_OP_decont_i;
                         break;
+                    case MVM_STORAGE_SPEC_BP_UINT64:
+                        out_type = hll->int_box_type; /* UInt is just a subset, so box into Int */
+                        register_type = MVM_reg_uint64;
+                        box_op = MVM_OP_box_u;
+                        unbox_op = MVM_OP_decont_u;
+                        break;
                     case MVM_STORAGE_SPEC_BP_NUM:
                         out_type = hll->num_box_type;
                         register_type = MVM_reg_num64;
@@ -704,7 +710,7 @@ static void optimize_decont(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *
                     MVM_spesh_usages_add_by_reg(tc, g, ss_temp, box_ins);
                     MVM_spesh_usages_add_by_reg(tc, g, val_temp, box_ins);
 
-                    MVM_spesh_graph_add_comment(tc, g, ins, "decont -> decont_* + box_*");
+                    MVM_spesh_graph_add_comment(tc, g, ins, "decont of %s -> %s + %s", stable->debug_name, ins->info->name, box_ins->info->name);
 
                     res_facts->type = out_type;
                     res_facts->flags |= MVM_SPESH_FACT_KNOWN_TYPE | MVM_SPESH_FACT_CONCRETE;
@@ -1156,7 +1162,7 @@ static void optimize_getlex_per_invocant(MVMThreadContext *tc, MVMSpeshGraph *g,
 
 /* Find the dispatch cache bytecode offset of the given instruction. Returns 0
  * if not found. */
-MVMuint32 find_cache_offset(MVMThreadContext *tc, MVMSpeshIns *ins) {
+static MVMuint32 find_cache_offset(MVMThreadContext *tc, MVMSpeshIns *ins) {
     MVMSpeshAnn *ann = ins->annotations;
     while (ann) {
         if (ann->type == MVM_SPESH_ANN_CACHED)
@@ -1170,7 +1176,7 @@ MVMuint32 find_cache_offset(MVMThreadContext *tc, MVMSpeshIns *ins) {
  * of operations culminating in the runbytecode instruction. It may be on the
  * runbytecode itself, if no guards were stacked up before it, but may also be
  * earlier (but always in the same basic block). */
-MVMint32 find_predeopt_index(MVMThreadContext *tc, MVMSpeshIns *ins) {
+static MVMint32 find_predeopt_index(MVMThreadContext *tc, MVMSpeshIns *ins) {
     while (ins) {
         MVMSpeshAnn *ann = ins->annotations;
         while (ann) {
@@ -1191,7 +1197,7 @@ MVMint32 find_predeopt_index(MVMThreadContext *tc, MVMSpeshIns *ins) {
 
 /* Given an instruction, finds the deopt target on it. Panics if there is not
  * one there. */
-void find_deopt_target_and_index(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshIns *ins,
+static void find_deopt_target_and_index(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshIns *ins,
         MVMuint32 *deopt_target_out, MVMuint32 *deopt_index_out) {
     MVMSpeshAnn *deopt_ann = ins->annotations;
     while (deopt_ann) {
@@ -1257,7 +1263,7 @@ static MVMSpeshStatsType * find_invokee_type_tuple(MVMThreadContext *tc,
 
 /* Sees if any static frames were logged for the dispatch at this location,
  * and if so checks if there was a stable one. */
-MVMStaticFrame * find_runbytecode_static_frame(MVMThreadContext *tc, MVMSpeshPlanned *p,
+static MVMStaticFrame * find_runbytecode_static_frame(MVMThreadContext *tc, MVMSpeshPlanned *p,
         MVMSpeshIns *ins, MVMuint32 cache_offset) {
     MVMuint32 i;
     MVMStaticFrame *best_result = NULL;
@@ -1427,7 +1433,7 @@ static void check_and_tweak_arg_guards(MVMThreadContext *tc, MVMSpeshGraph *g,
 
 /* Ties to optimize a runbytecode instruction by either pre-selecting a spesh
  * candidate or, if possible, inlining it. */
-void optimize_runbytecode(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *bb,
+static void optimize_runbytecode(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *bb,
         MVMSpeshIns *ins, MVMSpeshPlanned *p) {
     /* Make sure we can find the dispatch bytecode offset (used for both
      * looking up in the spesh log) and the pre-deopt index (for use with
@@ -1538,7 +1544,10 @@ void optimize_runbytecode(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *bb
         char *no_inline_reason = NULL;
         const MVMOpInfo *no_inline_info = NULL;
         MVMuint32 effective_size;
-        MVMSpeshGraph *inline_graph = MVM_spesh_inline_try_get_graph(tc, g,
+        /* Do not try to inline calls from inlined basic blocks! Otherwise the new inlinees would
+         * get added to the inlines table after the original inlinee which they are nested in and
+         * the frame walker would find the outer inlinee first, giving wrong results */
+        MVMSpeshGraph *inline_graph = bb->inlined ? NULL : MVM_spesh_inline_try_get_graph(tc, g,
             target_sf, target_sf->body.spesh->body.spesh_candidates[spesh_cand],
             ins, &no_inline_reason, &effective_size, &no_inline_info);
         log_inline(tc, g, target_sf, inline_graph, effective_size, no_inline_reason,
@@ -1564,7 +1573,7 @@ void optimize_runbytecode(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *bb
                 }
                 if (pointer->first_ins)
                     MVM_spesh_graph_add_comment(tc, g, pointer->first_ins,
-                        "inline of '%s' (%s) candidate %ld",
+                        "inline of '%s' (%s) candidate %d",
                         name_cstr, cuuid_cstr,
                         spesh_cand);
                 MVM_free(cuuid_cstr);
@@ -1581,7 +1590,7 @@ void optimize_runbytecode(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *bb
                 char *cuuid_cstr = MVM_string_utf8_encode_C_string(tc, target_sf->body.cuuid);
                 char *name_cstr  = MVM_string_utf8_encode_C_string(tc, target_sf->body.name);
                 MVM_spesh_graph_add_comment(tc, g, ins,
-                    "could not inline '%s' (%s) candidate %ld: %s",
+                    "could not inline '%s' (%s) candidate %d: %s",
                     name_cstr, cuuid_cstr, spesh_cand, no_inline_reason);
                 if (no_inline_info)
                     MVM_spesh_graph_add_comment(tc, g, ins, "inline-preventing instruction: %s",
@@ -1591,7 +1600,10 @@ void optimize_runbytecode(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *bb
             }
         }
     }
-    else if (target_sf->body.bytecode_size < MVM_spesh_inline_get_max_size(tc, target_sf)) {
+    /* Do not try to inline calls from inlined basic blocks! Otherwise the new inlinees would
+     * get added to the inlines table after the original inlinee which they are nested in and
+     * the frame walker would find the outer inlinee first, giving wrong results */
+    else if (!bb->inlined && target_sf->body.bytecode_size < MVM_spesh_inline_get_max_size(tc, target_sf)) {
         /* Consider producing a candidate to inline. */
         char *no_inline_reason = NULL;
         const MVMOpInfo *no_inline_info = NULL;
@@ -1818,7 +1830,7 @@ static void optimize_container_atomic(MVMThreadContext *tc, MVMSpeshGraph *g,
                 ins->info = MVM_op_get_op(MVM_OP_sp_cas_o);
                 break;
             case MVM_OP_atomicstore_o:
-                if (!cs->atomic_store)
+                if (!cs->store_atomic)
                     return;
                 ins->info = MVM_op_get_op(MVM_OP_sp_atomicstore_o);
                 break;
@@ -1929,7 +1941,7 @@ static int eliminate_phi_dead_reads(MVMThreadContext *tc, MVMSpeshGraph *g, MVMS
         operand++;
     }
     if (num_operands != ins->info->num_operands)
-        ins->info = get_phi(tc, g, num_operands);
+        ins->info = MVM_spesh_graph_get_phi(tc, g, num_operands);
     if (num_operands <= 1) {
         MVM_spesh_manipulate_delete_ins(tc, g, bb, ins);
         return 0;
@@ -2273,6 +2285,7 @@ static void optimize_bb_switch(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshB
         case MVM_OP_dispatch_n:
         case MVM_OP_dispatch_s:
         case MVM_OP_dispatch_i:
+        case MVM_OP_dispatch_u:
             MVM_spesh_disp_optimize(tc, g, bb, p, ins, &next_ins);
             break;
         case MVM_OP_sp_guard:
@@ -2287,6 +2300,7 @@ static void optimize_bb_switch(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshB
         case MVM_OP_sp_runbytecode_v:
         case MVM_OP_sp_runbytecode_o:
         case MVM_OP_sp_runbytecode_i:
+        case MVM_OP_sp_runbytecode_u:
         case MVM_OP_sp_runbytecode_n:
         case MVM_OP_sp_runbytecode_s: {
             MVMSpeshAnn *temps_ann = ins->annotations;
@@ -2307,11 +2321,13 @@ static void optimize_bb_switch(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshB
         case MVM_OP_sp_runnativecall_v:
         case MVM_OP_sp_runnativecall_o:
         case MVM_OP_sp_runnativecall_i:
+        case MVM_OP_sp_runnativecall_u:
         case MVM_OP_sp_runnativecall_n:
         case MVM_OP_sp_runnativecall_s:
         case MVM_OP_sp_runcfunc_v:
         case MVM_OP_sp_runcfunc_o:
         case MVM_OP_sp_runcfunc_i:
+        case MVM_OP_sp_runcfunc_u:
         case MVM_OP_sp_runcfunc_n:
         case MVM_OP_sp_runcfunc_s: {
             MVMSpeshAnn *temps_ann = ins->annotations;

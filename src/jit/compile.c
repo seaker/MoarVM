@@ -38,7 +38,7 @@ static void debug_spill_map(MVMThreadContext *tc, MVMJitCompiler *cl) {
         return;
     MVM_spesh_debug_printf(tc, "JIT Spilled: %d offset %x\n", MVM_VECTOR_ELEMS(cl->spills), cl->spills_base);
     for (i = 0; i < MVM_VECTOR_ELEMS(cl->spills); i++) {
-        MVM_spesh_debug_printf(tc, "    r%d [%x] = %s\n", i, cl->spills_base + i * sizeof(MVMRegister),
+        MVM_spesh_debug_printf(tc, "    r%u [%lx] = %s\n", i, cl->spills_base + i * sizeof(MVMRegister),
                                MVM_register_type(cl->spills[i].reg_type));
     }
 }
@@ -258,14 +258,23 @@ MVMJitCode * MVM_jit_compiler_assemble(MVMThreadContext *tc, MVMJitCompiler *cl,
 }
 
 MVMJitCode* MVM_jit_code_copy(MVMThreadContext *tc, MVMJitCode * const code) {
+#ifdef MVM_USE_C11_ATOMICS
+    atomic_fetch_add_explicit(&code->ref_cnt, 1, memory_order_relaxed);
+#else
     AO_fetch_and_add1(&code->ref_cnt);
+#endif
     return code;
 }
 
 void MVM_jit_code_destroy(MVMThreadContext *tc, MVMJitCode *code) {
     /* fetch_and_sub1 returns previous value, so check if there's only 1 reference */
+#ifdef MVM_USE_C11_ATOMICS
+    if (atomic_fetch_sub_explicit(&code->ref_cnt, 1, memory_order_relaxed) > 1)
+        return;
+#else
     if (AO_fetch_and_sub1(&code->ref_cnt) > 1)
         return;
+#endif
     MVM_platform_free_pages(code->func_ptr, code->size);
     MVM_free(code->labels);
     MVM_free(code->deopts);

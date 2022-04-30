@@ -549,6 +549,12 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 if (MVM_frame_try_return(tc) == 0)
                     goto return_label;
                 goto NEXT;
+            OP(return_u):
+                MVM_args_set_result_uint(tc, GET_REG(cur_op, 0).u64,
+                    MVM_RETURN_CALLER_FRAME);
+                if (MVM_frame_try_return(tc) == 0)
+                    goto return_label;
+                goto NEXT;
             OP(return_n):
                 MVM_args_set_result_num(tc, GET_REG(cur_op, 0).n64,
                     MVM_RETURN_CALLER_FRAME);
@@ -692,6 +698,10 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 goto NEXT;
             OP(bnot_i):
                 GET_REG(cur_op, 0).i64 = ~GET_REG(cur_op, 2).i64;
+                cur_op += 4;
+                goto NEXT;
+            OP(bnot_u):
+                GET_REG(cur_op, 0).u64 = ~GET_REG(cur_op, 2).u64;
                 cur_op += 4;
                 goto NEXT;
             OP(blshift_i):
@@ -945,6 +955,10 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 goto NEXT;
             OP(coerce_si):
                 GET_REG(cur_op, 0).i64 = MVM_coerce_s_i(tc, GET_REG(cur_op, 2).s);
+                cur_op += 4;
+                goto NEXT;
+            OP(coerce_su):
+                GET_REG(cur_op, 0).u64 = MVM_coerce_s_u(tc, GET_REG(cur_op, 2).s);
                 cur_op += 4;
                 goto NEXT;
             OP(coerce_sn):
@@ -1761,6 +1775,18 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 cur_op += 12;
                 goto NEXT;
             }
+            OP(bindattr_u): {
+                MVMObject *obj = GET_REG(cur_op, 0).o;
+                if (!IS_CONCRETE(obj))
+                    MVM_exception_throw_adhoc(tc, "Cannot bind attributes in a %s type object. Did you forget a '.new'?", MVM_6model_get_debug_name(tc, obj));
+                REPR(obj)->attr_funcs.bind_attribute(tc,
+                    STABLE(obj), obj, OBJECT_BODY(obj),
+                    GET_REG(cur_op, 2).o, MVM_cu_string(tc, cu, GET_UI32(cur_op, 4)),
+                    GET_I16(cur_op, 10), GET_REG(cur_op, 8), MVM_reg_uint64);
+                MVM_SC_WB_OBJ(tc, obj);
+                cur_op += 12;
+                goto NEXT;
+            }
             OP(bindattr_n): {
                 MVMObject *obj = GET_REG(cur_op, 0).o;
                 if (!IS_CONCRETE(obj))
@@ -1805,6 +1831,18 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                     STABLE(obj), obj, OBJECT_BODY(obj),
                     GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).s,
                     -1, GET_REG(cur_op, 6), MVM_reg_int64);
+                MVM_SC_WB_OBJ(tc, obj);
+                cur_op += 8;
+                goto NEXT;
+            }
+            OP(bindattrs_u): {
+                MVMObject *obj = GET_REG(cur_op, 0).o;
+                if (!IS_CONCRETE(obj))
+                    MVM_exception_throw_adhoc(tc, "Cannot bind attributes in a %s type object. Did you forget a '.new'?", MVM_6model_get_debug_name(tc, obj));
+                REPR(obj)->attr_funcs.bind_attribute(tc,
+                    STABLE(obj), obj, OBJECT_BODY(obj),
+                    GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).s,
+                    -1, GET_REG(cur_op, 6), MVM_reg_uint64);
                 MVM_SC_WB_OBJ(tc, obj);
                 cur_op += 8;
                 goto NEXT;
@@ -1856,6 +1894,17 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 cur_op += 12;
                 goto NEXT;
             }
+            OP(getattr_u): {
+                MVMObject *obj = GET_REG(cur_op, 2).o;
+                if (!IS_CONCRETE(obj))
+                    MVM_exception_throw_adhoc(tc, "Cannot look up attributes in a %s type object. Did you forget a '.new'?", MVM_6model_get_debug_name(tc, obj));
+                REPR(obj)->attr_funcs.get_attribute(tc,
+                    STABLE(obj), obj, OBJECT_BODY(obj),
+                    GET_REG(cur_op, 4).o, MVM_cu_string(tc, cu, GET_UI32(cur_op, 6)),
+                    GET_I16(cur_op, 10), &GET_REG(cur_op, 0), MVM_reg_uint64);
+                cur_op += 12;
+                goto NEXT;
+            }
             OP(getattr_n): {
                 MVMObject *obj = GET_REG(cur_op, 2).o;
                 if (!IS_CONCRETE(obj))
@@ -1899,6 +1948,17 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                     STABLE(obj), obj, OBJECT_BODY(obj),
                     GET_REG(cur_op, 4).o, GET_REG(cur_op, 6).s,
                     -1, &GET_REG(cur_op, 0), MVM_reg_int64);
+                cur_op += 8;
+                goto NEXT;
+            }
+            OP(getattrs_u): {
+                MVMObject *obj = GET_REG(cur_op, 2).o;
+                if (!IS_CONCRETE(obj))
+                    MVM_exception_throw_adhoc(tc, "Cannot look up attributes in a %s type object. Did you forget a '.new'?", MVM_6model_get_debug_name(tc, obj));
+                REPR(obj)->attr_funcs.get_attribute(tc,
+                    STABLE(obj), obj, OBJECT_BODY(obj),
+                    GET_REG(cur_op, 4).o, GET_REG(cur_op, 6).s,
+                    -1, &GET_REG(cur_op, 0), MVM_reg_uint64);
                 cur_op += 8;
                 goto NEXT;
             }
@@ -4263,6 +4323,12 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                     MVM_cu_string(tc, cu, GET_UI32(cur_op, 6)));
                 cur_op += 12;
                 goto NEXT;
+            OP(getattrref_u):
+                GET_REG(cur_op, 0).o = MVM_nativeref_attr_u(tc,
+                    GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).o,
+                    MVM_cu_string(tc, cu, GET_UI32(cur_op, 6)));
+                cur_op += 12;
+                goto NEXT;
             OP(getattrref_n):
                 GET_REG(cur_op, 0).o = MVM_nativeref_attr_n(tc,
                     GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).o,
@@ -4346,6 +4412,11 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                     GET_REG(cur_op, 4).i64, GET_REG(cur_op, 6).i64);
                 cur_op += 8;
                 goto NEXT;
+            OP(atpos2d_u):
+                GET_REG(cur_op, 0).u64 = MVM_repr_at_pos_2d_u(tc, GET_REG(cur_op, 2).o,
+                    GET_REG(cur_op, 4).i64, GET_REG(cur_op, 6).i64);
+                cur_op += 8;
+                goto NEXT;
             OP(atpos2d_n):
                 GET_REG(cur_op, 0).n64 = MVM_repr_at_pos_2d_n(tc, GET_REG(cur_op, 2).o,
                     GET_REG(cur_op, 4).i64, GET_REG(cur_op, 6).i64);
@@ -4363,6 +4434,11 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 goto NEXT;
             OP(atpos3d_i):
                 GET_REG(cur_op, 0).i64 = MVM_repr_at_pos_3d_i(tc, GET_REG(cur_op, 2).o,
+                    GET_REG(cur_op, 4).i64, GET_REG(cur_op, 6).i64, GET_REG(cur_op, 8).i64);
+                cur_op += 10;
+                goto NEXT;
+            OP(atpos3d_u):
+                GET_REG(cur_op, 0).u64 = MVM_repr_at_pos_3d_u(tc, GET_REG(cur_op, 2).o,
                     GET_REG(cur_op, 4).i64, GET_REG(cur_op, 6).i64, GET_REG(cur_op, 8).i64);
                 cur_op += 10;
                 goto NEXT;
@@ -4386,6 +4462,11 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                     GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).o);
                 cur_op += 6;
                 goto NEXT;
+            OP(atposnd_u):
+                GET_REG(cur_op, 0).u64 = MVM_repr_at_pos_multidim_u(tc,
+                    GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).o);
+                cur_op += 6;
+                goto NEXT;
             OP(atposnd_n):
                 GET_REG(cur_op, 0).n64 = MVM_repr_at_pos_multidim_n(tc,
                     GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).o);
@@ -4405,6 +4486,12 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 MVM_repr_bind_pos_2d_i(tc, GET_REG(cur_op, 0).o,
                     GET_REG(cur_op, 2).i64, GET_REG(cur_op, 4).i64,
                     GET_REG(cur_op, 6).i64);
+                cur_op += 8;
+                goto NEXT;
+            OP(bindpos2d_u):
+                MVM_repr_bind_pos_2d_u(tc, GET_REG(cur_op, 0).o,
+                    GET_REG(cur_op, 2).i64, GET_REG(cur_op, 4).i64,
+                    GET_REG(cur_op, 6).u64);
                 cur_op += 8;
                 goto NEXT;
             OP(bindpos2d_n):
@@ -4431,6 +4518,12 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                     GET_REG(cur_op, 6).i64, GET_REG(cur_op, 8).i64);
                 cur_op += 10;
                 goto NEXT;
+            OP(bindpos3d_u):
+                MVM_repr_bind_pos_3d_u(tc, GET_REG(cur_op, 0).o,
+                    GET_REG(cur_op, 2).i64, GET_REG(cur_op, 4).i64,
+                    GET_REG(cur_op, 6).i64, GET_REG(cur_op, 8).u64);
+                cur_op += 10;
+                goto NEXT;
             OP(bindpos3d_n):
                 MVM_repr_bind_pos_3d_n(tc, GET_REG(cur_op, 0).o,
                     GET_REG(cur_op, 2).i64, GET_REG(cur_op, 4).i64,
@@ -4452,6 +4545,11 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
             OP(bindposnd_i):
                 MVM_repr_bind_pos_multidim_i(tc, GET_REG(cur_op, 0).o,
                     GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).i64);
+                cur_op += 6;
+                goto NEXT;
+            OP(bindposnd_u):
+                MVM_repr_bind_pos_multidim_u(tc, GET_REG(cur_op, 0).o,
+                    GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).u64);
                 cur_op += 6;
                 goto NEXT;
             OP(bindposnd_n):
@@ -4519,6 +4617,11 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 goto NEXT;
             OP(multidimref_i):
                 GET_REG(cur_op, 0).o = MVM_nativeref_multidim_i(tc,
+                    GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).o);
+                cur_op += 6;
+                goto NEXT;
+            OP(multidimref_u):
+                GET_REG(cur_op, 0).o = MVM_nativeref_multidim_u(tc,
                     GET_REG(cur_op, 2).o, GET_REG(cur_op, 4).o);
                 cur_op += 6;
                 goto NEXT;
@@ -4627,8 +4730,7 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
             OP(getlexref_u32):
             OP(getlexref_u16):
             OP(getlexref_u8):
-                /* XXX Cheat should have a _u here. */
-                GET_REG(cur_op, 0).o = MVM_nativeref_lex_i(tc,
+                GET_REG(cur_op, 0).o = MVM_nativeref_lex_u(tc,
                     GET_UI16(cur_op, 4), GET_UI16(cur_op, 2));
                 cur_op += 6;
                 goto NEXT;
@@ -5085,11 +5187,17 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 goto NEXT;
             }
             OP(hllboolfor): {
-                MVMString   *hll     = GET_REG(cur_op, 4).s;
-                MVMHLLConfig *config = MVM_hll_get_config_for(tc, hll);
-                GET_REG(cur_op, 0).o = GET_REG(cur_op, 2).i64
+                MVMString    *hll     = GET_REG(cur_op, 4).s;
+                MVMHLLConfig *config  = MVM_hll_get_config_for(tc, hll);
+                MVMObject *bool_value = GET_REG(cur_op, 2).i64
                     ? config->true_value
                     : config->false_value;
+                if (!bool_value) {
+                    char *c_hll = MVM_string_utf8_encode_C_string(tc, hll);
+                    char *waste[] = { c_hll, NULL };
+                    MVM_exception_throw_adhoc_free(tc, waste, "Trying to hllboolfor a value, but '%s' doesn't have HLL bools", c_hll);
+                }
+                GET_REG(cur_op, 0).o = bool_value;
                 cur_op += 6;
                 goto NEXT;
             }
@@ -5292,6 +5400,22 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 MVMuint32 bytecode_offset = (cur_op - bytecode_start) - 2;
                 tc->cur_frame->return_value = &GET_REG(cur_op, 0);
                 tc->cur_frame->return_type  = MVM_RETURN_INT;
+                cur_op += 8 + 2 * callsite->flag_count;
+                tc->cur_frame->return_address = cur_op;
+                ice->run_dispatch(tc, ice_ptr, ice, id, callsite, args, tc->cur_frame->work,
+                        tc->cur_frame->static_info, bytecode_offset);
+                goto NEXT;
+            }
+            OP(dispatch_u): {
+                MVMDispInlineCacheEntry **ice_ptr = MVM_disp_inline_cache_get(
+                        cur_op, bytecode_start, tc->cur_frame);
+                MVMDispInlineCacheEntry *ice = *ice_ptr;
+                MVMString *id = MVM_cu_string(tc, cu, GET_UI32(cur_op, 2));
+                MVMCallsite *callsite = cu->body.callsites[GET_UI16(cur_op, 6)];
+                MVMuint16 *args = (MVMuint16 *)(cur_op + 8);
+                MVMuint32 bytecode_offset = (cur_op - bytecode_start) - 2;
+                tc->cur_frame->return_value = &GET_REG(cur_op, 0);
+                tc->cur_frame->return_type  = MVM_RETURN_UINT;
                 cur_op += 8 + 2 * callsite->flag_count;
                 tc->cur_frame->return_address = cur_op;
                 ice->run_dispatch(tc, ice_ptr, ice, id, callsite, args, tc->cur_frame->work,
@@ -5700,6 +5824,23 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 MVMuint16 *args = (MVMuint16 *)(cur_op + 14);
                 tc->cur_frame->return_value = &GET_REG(cur_op, 0);
                 tc->cur_frame->return_type  = MVM_RETURN_INT;
+                cur_op += 14 + 2 * callsite->flag_count;
+                tc->cur_frame->return_address = cur_op;
+                ice->run_dispatch(tc, ice_ptr, ice, id, callsite, args, tc->cur_frame->work,
+                        sf, -1);
+                goto NEXT;
+            }
+            OP(sp_dispatch_u): {
+                MVMString *id = MVM_cu_string(tc, cu, GET_UI32(cur_op, 2));
+                MVMCallsite *callsite = cu->body.callsites[GET_UI16(cur_op, 6)];
+                MVMStaticFrame *sf = (MVMStaticFrame *)tc->cur_frame
+                        ->effective_spesh_slots[GET_UI16(cur_op, 8)];
+                MVMDispInlineCacheEntry **ice_ptr = MVM_disp_inline_cache_get_spesh(sf,
+                        GET_UI32(cur_op, 10));
+                MVMDispInlineCacheEntry *ice = *ice_ptr;
+                MVMuint16 *args = (MVMuint16 *)(cur_op + 14);
+                tc->cur_frame->return_value = &GET_REG(cur_op, 0);
+                tc->cur_frame->return_type  = MVM_RETURN_UINT;
                 cur_op += 14 + 2 * callsite->flag_count;
                 tc->cur_frame->return_address = cur_op;
                 ice->run_dispatch(tc, ice_ptr, ice, id, callsite, args, tc->cur_frame->work,
@@ -6223,7 +6364,7 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
             }
             OP(sp_atomicload_o): {
                 MVMObject *target = GET_REG(cur_op, 2).o;
-                GET_REG(cur_op, 0).o = target->st->container_spec->atomic_load(tc, target);
+                GET_REG(cur_op, 0).o = target->st->container_spec->load_atomic(tc, target);
                 cur_op += 4;
                 goto NEXT;
             }
@@ -6231,7 +6372,7 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 MVMObject *target = GET_REG(cur_op, 0).o;
                 MVMObject *value = GET_REG(cur_op, 2).o;
                 cur_op += 4;
-                target->st->container_spec->atomic_store(tc, target, value);
+                target->st->container_spec->store_atomic(tc, target, value);
                 goto NEXT;
             }
             OP(sp_add_I): {
@@ -6370,6 +6511,21 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 MVM_frame_dispatch(tc, code, args, spesh_cand);
                 goto NEXT;
             }
+            OP(sp_runbytecode_u): {
+                MVMCode *code = (MVMCode *)GET_REG(cur_op, 2).o;
+                MVMint16 spesh_cand = GET_I16(cur_op, 12);
+                MVMArgs args = {
+                    .callsite = (MVMCallsite *)GET_UI64(cur_op, 4),
+                    .source = reg_base,
+                    .map = (MVMuint16 *)(cur_op + 14)
+                };
+                tc->cur_frame->return_value = &GET_REG(cur_op, 0);
+                tc->cur_frame->return_type = MVM_RETURN_UINT;
+                cur_op += 14 + 2 * args.callsite->flag_count;
+                tc->cur_frame->return_address = cur_op;
+                MVM_frame_dispatch(tc, code, args, spesh_cand);
+                goto NEXT;
+            }
             OP(sp_runbytecode_n): {
                 MVMCode *code = (MVMCode *)GET_REG(cur_op, 2).o;
                 MVMint16 spesh_cand = GET_I16(cur_op, 12);
@@ -6442,6 +6598,20 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 code->body.func(tc, args);
                 goto NEXT;
             }
+            OP(sp_runcfunc_u): {
+                MVMCFunction *code = (MVMCFunction *)GET_REG(cur_op, 2).o;
+                MVMArgs args = {
+                    .callsite = (MVMCallsite *)GET_UI64(cur_op, 4),
+                    .source = reg_base,
+                    .map = (MVMuint16 *)(cur_op + 12)
+                };
+                tc->cur_frame->return_value = &GET_REG(cur_op, 0);
+                tc->cur_frame->return_type = MVM_RETURN_UINT;
+                cur_op += 12 + 2 * args.callsite->flag_count;
+                tc->cur_frame->return_address = cur_op;
+                code->body.func(tc, args);
+                goto NEXT;
+            }
             OP(sp_runcfunc_n): {
                 MVMCFunction *code = (MVMCFunction *)GET_REG(cur_op, 2).o;
                 MVMArgs args = {
@@ -6508,6 +6678,21 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
                 MVMObject *result_type = GET_REG(cur_op, 12).o;
                 tc->cur_frame->return_value = &GET_REG(cur_op, 0);
                 tc->cur_frame->return_type = MVM_RETURN_INT;
+                cur_op += 12 + 2 * args.callsite->flag_count;
+                tc->cur_frame->return_address = cur_op;
+                MVM_nativecall_dispatch(tc, result_type, site, args);
+                goto NEXT;
+            }
+            OP(sp_runnativecall_u): {
+                MVMObject *site = GET_REG(cur_op, 2).o;
+                MVMArgs args = {
+                    .callsite = (MVMCallsite *)GET_UI64(cur_op, 4),
+                    .source = reg_base,
+                    .map = (MVMuint16 *)(cur_op + 12)
+                };
+                MVMObject *result_type = GET_REG(cur_op, 12).o;
+                tc->cur_frame->return_value = &GET_REG(cur_op, 0);
+                tc->cur_frame->return_type = MVM_RETURN_UINT;
                 cur_op += 12 + 2 * args.callsite->flag_count;
                 tc->cur_frame->return_address = cur_op;
                 MVM_nativecall_dispatch(tc, result_type, site, args);
@@ -6606,33 +6791,7 @@ void MVM_interp_run(MVMThreadContext *tc, void (*initial_invoke)(MVMThreadContex
             /* The compiler compiles faster if all deprecated are together and at the end
              * even though the op numbers are technically out of order. */
             OP(DEPRECATED_6):
-            OP(DEPRECATED_7):
-            OP(DEPRECATED_8):
-            OP(DEPRECATED_9):
-            OP(DEPRECATED_10):
-            OP(DEPRECATED_11):
-            OP(DEPRECATED_12):
                 MVM_exception_throw_adhoc(tc, "The getregref_* ops were removed in MoarVM 2017.01.");
-            OP(DEPRECATED_14):
-                MVM_exception_throw_adhoc(tc, "The asyncwritestr op was removed in MoarVM 2017.05.");
-            OP(DEPRECATED_15):
-                MVM_exception_throw_adhoc(tc, "The asyncwritestrto op was removed in MoarVM 2017.05.");
-            OP(DEPRECATED_16):
-                MVM_exception_throw_adhoc(tc, "The asyncreadchars op was removed in MoarVM 2017.05.");
-            OP(DEPRECATED_17):
-                MVM_exception_throw_adhoc(tc, "The setencoding op was removed in MoarVM 2017.06.");
-            OP(DEPRECATED_18):
-                MVM_exception_throw_adhoc(tc, "The write_fhs op was removed in MoarVM 2017.06.");
-            OP(DEPRECATED_19):
-                MVM_exception_throw_adhoc(tc, "The say_fhs op was removed in MoarVM 2017.06.");
-            OP(DEPRECATED_21):
-                MVM_exception_throw_adhoc(tc, "The readlinechomp_fh op was removed in MoarVM 2017.06.");
-            OP(DEPRECATED_22):
-                MVM_exception_throw_adhoc(tc, "The readall_fh op was removed in MoarVM 2017.06.");
-            OP(DEPRECATED_23):
-                MVM_exception_throw_adhoc(tc, "The read_fhs op was removed in MoarVM 2017.06.");
-            OP(DEPRECATED_24):
-                MVM_exception_throw_adhoc(tc, "The setinputlinesep op was removed in MoarVM 2017.06.");
             OP(DEPRECATED_25):
                 MVM_exception_throw_adhoc(tc, "The setinputlineseps op was removed in MoarVM 2017.06.");
             OP(DEPRECATED_27):

@@ -54,13 +54,13 @@ static FILE *fopen_perhaps_with_pid(char *env_var, char *path, const char *mode)
         if (found_percents > 1) {
             result = MVM_platform_fopen(path, mode);
         } else {
-            char *fixed_path = malloc(path_length + 16);
+            char *fixed_path = MVM_malloc(path_length + 16);
             MVMint64 pid = MVM_proc_getpid(NULL);
             /* We make the brave assumption that
              * pids only go up to 16 characters. */
             snprintf(fixed_path, path_length + 16, path, pid);
             result = MVM_platform_fopen(fixed_path, mode);
-            free(fixed_path);
+            MVM_free(fixed_path);
         }
     } else {
         result = MVM_platform_fopen(path, mode);
@@ -543,7 +543,7 @@ void MVM_vm_dump_file(MVMInstance *instance, const char *filename) {
 
     if (block == NULL) {
 #if defined(_WIN32)
-        MVM_exception_throw_adhoc(tc, "Could not map file '%s' into memory: %d", filename, GetLastError());
+        MVM_exception_throw_adhoc(tc, "Could not map file '%s' into memory: %lu", filename, GetLastError());
 #else
         MVM_exception_throw_adhoc(tc, "Could not map file '%s' into memory: %s", filename, strerror(errno));
 #endif
@@ -756,6 +756,13 @@ void MVM_vm_destroy_instance(MVMInstance *instance) {
 
     /* Clear up VM instance memory. */
     MVM_free(instance);
+
+#ifdef MVM_USE_MIMALLOC
+    /* Ask mimalloc to release to the OS any already freed memory it's holding onto.
+     * This probably isn't strictly necessary, but might help in case any analyzers
+     * (e.g., valgrind, heaptrack) don't support mimalloc well. */
+    mi_collect(true);
+#endif
 }
 
 void MVM_vm_set_clargs(MVMInstance *instance, int argc, char **argv) {

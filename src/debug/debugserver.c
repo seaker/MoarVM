@@ -139,7 +139,7 @@ static void request_all_threads_suspend(MVMThreadContext *dtc, cmp_ctx_t *ctx, r
 static MVMuint64 allocate_handle(MVMThreadContext *dtc, MVMObject *target);
 
 /* Breakpoint stuff */
-void normalize_filename(char *name) {
+static void normalize_filename(char *name) {
     /* On Windows, we sometimes see forward slashes, sometimes backslashes.
      * Normalize them to forward slash so we can reliably hit breakpoints. */
     char *cur_bs = strchr(name, '\\');
@@ -369,7 +369,7 @@ MVM_PUBLIC MVMint32 MVM_debugserver_breakpoint_check(MVMThreadContext *tc, MVMui
 
 #define REQUIRE(field, message) do { if (!(data->fields_set & (field))) { data->parse_fail = 1; data->parse_fail_message = (message); return 0; }; accepted = accepted | (field); } while (0)
 
-MVMuint8 check_requirements(MVMThreadContext *tc, request_data *data) {
+static MVMuint8 check_requirements(MVMThreadContext *tc, request_data *data) {
     fields_set accepted = FS_id | FS_type;
 
     MVMuint8 allow_optional = 0;
@@ -1000,7 +1000,7 @@ static void send_is_execution_suspended_info(MVMThreadContext *dtc, cmp_ctx_t *c
     cmp_write_bool(ctx, result);
 }
 
-MVMuint8 setup_step(MVMThreadContext *dtc, cmp_ctx_t *ctx, request_data *argument, MVMDebugSteppingMode mode, MVMThread *thread) {
+static MVMuint8 setup_step(MVMThreadContext *dtc, cmp_ctx_t *ctx, request_data *argument, MVMDebugSteppingMode mode, MVMThread *thread) {
     MVMThread *to_do = thread ? thread : find_thread_by_id(dtc->instance, argument->thread_id);
     MVMThreadContext *tc;
 
@@ -1173,7 +1173,7 @@ static void release_all_handles(MVMThreadContext *dtc) {
 static MVMuint64 release_handles(MVMThreadContext *dtc, cmp_ctx_t *ctx, request_data *argument) {
     MVMDebugServerHandleTable *dht = dtc->instance->debugserver->handle_table;
 
-    MVMuint16 handle_index = 0;
+    MVMuint32 handle_index = 0;
     MVMuint16 id_index = 0;
     MVMuint16 handles_cleared = 0;
     for (handle_index = 0; handle_index < dht->used; handle_index++) {
@@ -1494,6 +1494,7 @@ static void debugserver_invocation_special_return(MVMThreadContext *tc, void *da
             break;
         }
         case MVM_RETURN_INT:
+        case MVM_RETURN_UINT: /* FIXME don't know what the debug client would need for uint */
             cmp_write_map(ctx, 5);
             cmp_write_str(ctx, "type", 4);
             cmp_write_int(ctx, MT_InvokeResult);
@@ -1633,6 +1634,10 @@ static MVMuint64 request_invoke_code(MVMThreadContext *dtc, cmp_ctx_t *ctx, requ
             if (argument->arguments[index].arg_kind == MVM_reg_int64) {
                 cs->arg_flags[index] = MVM_CALLSITE_ARG_INT;
                 arguments_to_pass[index].i64 = argument->arguments[index].arg_u.i;
+            }
+            else if (argument->arguments[index].arg_kind == MVM_reg_uint64) {
+                cs->arg_flags[index] = MVM_CALLSITE_ARG_UINT;
+                arguments_to_pass[index].u64 = argument->arguments[index].arg_u.i;
             }
             else if (argument->arguments[index].arg_kind == MVM_reg_num64) {
                 cs->arg_flags[index] = MVM_CALLSITE_ARG_NUM;
@@ -2047,7 +2052,7 @@ static MVMint32 request_object_attributes(MVMThreadContext *dtc, cmp_ctx_t *ctx,
                 MVMP6opaqueNameMap *cur_map_entry = name_to_index_mapping;
 
                 while (cur_map_entry->class_key != NULL) {
-                    MVMuint16 i;
+                    MVMuint32 i;
                     MVMint64 slot;
                     char *class_name = MVM_6model_get_stable_debug_name(dtc, cur_map_entry->class_key->st);
 
@@ -2058,91 +2063,89 @@ static MVMint32 request_object_attributes(MVMThreadContext *dtc, cmp_ctx_t *ctx,
                         char * name = MVM_string_utf8_encode_C_string(dtc, cur_map_entry->names[i]);
 
                         slot = cur_map_entry->slots[i];
-                        if (slot >= 0) {
-                            MVMuint16 const offset = repr_data->attribute_offsets[slot];
-                            MVMSTable * const attr_st = repr_data->flattened_stables[slot];
-                            if (attr_st == NULL) {
-                                MVMObject *value = get_obj_at_offset(data, offset);
-                                char *value_debug_name = value ? MVM_6model_get_debug_name(dtc, value) : "VMNull";
+                        MVMuint16 const offset = repr_data->attribute_offsets[slot];
+                        MVMSTable * const attr_st = repr_data->flattened_stables[slot];
+                        if (attr_st == NULL) {
+                            MVMObject *value = get_obj_at_offset(data, offset);
+                            char *value_debug_name = value ? MVM_6model_get_debug_name(dtc, value) : "VMNull";
 
-                                if (vm->debugserver->debugspam_protocol)
-                                    fprintf(stderr, "Writing an object attribute\n");
+                            if (vm->debugserver->debugspam_protocol)
+                                fprintf(stderr, "Writing an object attribute\n");
 
-                                cmp_write_map(ctx, 7);
+                            cmp_write_map(ctx, 7);
 
-                                cmp_write_str(ctx, "name", 4);
-                                cmp_write_str(ctx, name, strlen(name));
+                            cmp_write_str(ctx, "name", 4);
+                            cmp_write_str(ctx, name, strlen(name));
 
-                                cmp_write_str(ctx, "class", 5);
-                                cmp_write_str(ctx, class_name, strlen(class_name));
+                            cmp_write_str(ctx, "class", 5);
+                            cmp_write_str(ctx, class_name, strlen(class_name));
 
-                                cmp_write_str(ctx, "kind", 4);
-                                cmp_write_str(ctx, "obj", 3);
+                            cmp_write_str(ctx, "kind", 4);
+                            cmp_write_str(ctx, "obj", 3);
 
-                                cmp_write_str(ctx, "handle", 6);
-                                cmp_write_integer(ctx, allocate_handle(dtc, value));
+                            cmp_write_str(ctx, "handle", 6);
+                            cmp_write_integer(ctx, allocate_handle(dtc, value));
 
-                                cmp_write_str(ctx, "type", 4);
-                                cmp_write_str(ctx, value_debug_name, strlen(value_debug_name));
+                            cmp_write_str(ctx, "type", 4);
+                            cmp_write_str(ctx, value_debug_name, strlen(value_debug_name));
 
-                                cmp_write_str(ctx, "concrete", 8);
-                                cmp_write_bool(ctx, !MVM_is_null(dtc, value) && IS_CONCRETE(value));
+                            cmp_write_str(ctx, "concrete", 8);
+                            cmp_write_bool(ctx, !MVM_is_null(dtc, value) && IS_CONCRETE(value));
 
-                                cmp_write_str(ctx, "container", 9);
-                                if (MVM_is_null(dtc, value))
-                                    cmp_write_bool(ctx, 0);
-                                else
-                                    cmp_write_bool(ctx, STABLE(value)->container_spec == NULL ? 0 : 1);
-                            }
-                            else {
-                                const MVMStorageSpec *attr_storage_spec = attr_st->REPR->get_storage_spec(dtc, attr_st);
+                            cmp_write_str(ctx, "container", 9);
+                            if (MVM_is_null(dtc, value))
+                                cmp_write_bool(ctx, 0);
+                            else
+                                cmp_write_bool(ctx, STABLE(value)->container_spec == NULL ? 0 : 1);
+                        }
+                        else {
+                            const MVMStorageSpec *attr_storage_spec = attr_st->REPR->get_storage_spec(dtc, attr_st);
 
-                                if (vm->debugserver->debugspam_protocol)
-                                    fprintf(stderr, "Writing a native attribute\n");
+                            if (vm->debugserver->debugspam_protocol)
+                                fprintf(stderr, "Writing a native attribute\n");
 
-                                cmp_write_map(ctx, 4);
+                            cmp_write_map(ctx, 4);
 
-                                cmp_write_str(ctx, "name", 4);
-                                cmp_write_str(ctx, name, strlen(name));
+                            cmp_write_str(ctx, "name", 4);
+                            cmp_write_str(ctx, name, strlen(name));
 
-                                cmp_write_str(ctx, "class", 5);
-                                cmp_write_str(ctx, class_name, strlen(class_name));
+                            cmp_write_str(ctx, "class", 5);
+                            cmp_write_str(ctx, class_name, strlen(class_name));
 
-                                cmp_write_str(ctx, "kind", 4);
+                            cmp_write_str(ctx, "kind", 4);
 
-                                switch (attr_storage_spec->boxed_primitive) {
-                                    case MVM_STORAGE_SPEC_BP_INT:
-                                        cmp_write_str(ctx, "int", 3);
-                                        cmp_write_str(ctx, "value", 5);
-                                        cmp_write_integer(ctx, attr_st->REPR->box_funcs.get_int(dtc, attr_st, target, (char *)data + offset));
-                                        break;
-                                    case MVM_STORAGE_SPEC_BP_NUM:
-                                        cmp_write_str(ctx, "num", 3);
-                                        cmp_write_str(ctx, "value", 5);
-                                        cmp_write_double(ctx, attr_st->REPR->box_funcs.get_num(dtc, attr_st, target, (char *)data + offset));
-                                        break;
-                                    case MVM_STORAGE_SPEC_BP_STR: {
-                                        MVMString * const s = attr_st->REPR->box_funcs.get_str(dtc, attr_st, target, (char *)data + offset);
-                                        char * str;
-                                        if (s)
-                                            str = MVM_string_utf8_encode_C_string(dtc, s);
-                                        cmp_write_str(ctx, "str", 3);
-                                        cmp_write_str(ctx, "value", 5);
-                                        if (s) {
-                                            cmp_write_str(ctx, str, strlen(str));
-                                            MVM_free(str);
-                                        }
-                                        else {
-                                            cmp_write_nil(ctx);
-                                        }
-                                        break;
+                            switch (attr_storage_spec->boxed_primitive) {
+                                case MVM_STORAGE_SPEC_BP_INT:
+                                    cmp_write_str(ctx, "int", 3);
+                                    cmp_write_str(ctx, "value", 5);
+                                    cmp_write_integer(ctx, attr_st->REPR->box_funcs.get_int(dtc, attr_st, target, (char *)data + offset));
+                                    break;
+                                case MVM_STORAGE_SPEC_BP_NUM:
+                                    cmp_write_str(ctx, "num", 3);
+                                    cmp_write_str(ctx, "value", 5);
+                                    cmp_write_double(ctx, attr_st->REPR->box_funcs.get_num(dtc, attr_st, target, (char *)data + offset));
+                                    break;
+                                case MVM_STORAGE_SPEC_BP_STR: {
+                                    MVMString * const s = attr_st->REPR->box_funcs.get_str(dtc, attr_st, target, (char *)data + offset);
+                                    char * str;
+                                    if (s)
+                                        str = MVM_string_utf8_encode_C_string(dtc, s);
+                                    cmp_write_str(ctx, "str", 3);
+                                    cmp_write_str(ctx, "value", 5);
+                                    if (s) {
+                                        cmp_write_str(ctx, str, strlen(str));
+                                        MVM_free(str);
                                     }
-                                    default:
-                                        cmp_write_str(ctx, "error", 5);
-                                        cmp_write_str(ctx, "value", 5);
-                                        cmp_write_str(ctx, "error", 5);
-                                        break;
+                                    else {
+                                        cmp_write_nil(ctx);
+                                    }
+                                    break;
                                 }
+                                default:
+                                    cmp_write_str(ctx, "error", 5);
+                                    cmp_write_str(ctx, "value", 5);
+                                    cmp_write_str(ctx, "error", 5);
+                                    break;
                             }
                         }
 
@@ -2383,26 +2386,30 @@ static MVMint32 request_object_metadata(MVMThreadContext *dtc, cmp_ctx_t *ctx, r
             MVMuint8 entry_count =
                 !!(entry & MVM_CALLSITE_ARG_OBJ)
                 + !!(entry & MVM_CALLSITE_ARG_INT)
+                + !!(entry & MVM_CALLSITE_ARG_UINT)
                 + !!(entry & MVM_CALLSITE_ARG_NUM)
                 + !!(entry & MVM_CALLSITE_ARG_STR)
                 + !!(entry & MVM_CALLSITE_ARG_NAMED)
-                + !!(entry & MVM_CALLSITE_ARG_FLAT)
-                + !!(entry & MVM_CALLSITE_ARG_FLAT_NAMED);
+                + !!(entry & MVM_CALLSITE_ARG_FLAT);
             cmp_write_array(ctx, entry_count ? entry_count : 0);
             if (entry & MVM_CALLSITE_ARG_OBJ)
                 cmp_write_str(ctx, "obj", 3);
             if (entry & MVM_CALLSITE_ARG_INT)
                 cmp_write_str(ctx, "int", 3);
+            if (entry & MVM_CALLSITE_ARG_UINT)
+                cmp_write_str(ctx, "int", 3);
             if (entry & MVM_CALLSITE_ARG_NUM)
                 cmp_write_str(ctx, "num", 3);
             if (entry & MVM_CALLSITE_ARG_STR)
                 cmp_write_str(ctx, "str", 3);
-            if (entry & MVM_CALLSITE_ARG_NAMED)
-                cmp_write_str(ctx, "named", 5);
-            if (entry & MVM_CALLSITE_ARG_FLAT)
-                cmp_write_str(ctx, "flat", 4);
-            if (entry & MVM_CALLSITE_ARG_FLAT_NAMED)
-                cmp_write_str(ctx, "flat&named", 10);
+            if (entry & MVM_CALLSITE_ARG_FLAT) {
+                if (entry & MVM_CALLSITE_ARG_NAMED)
+                    cmp_write_str(ctx, "flat&named", 10);
+                else
+                    cmp_write_str(ctx, "flat", 4);
+            }
+            else if (entry & MVM_CALLSITE_ARG_NAMED)
+                    cmp_write_str(ctx, "named", 5);
             if (!entry_count)
                 cmp_write_str(ctx, "nothing", 7);
         }
@@ -2785,7 +2792,7 @@ static bool is_valid_num(cmp_object_t *obj, MVMnum64 *result) {
 #define CHECK(operation, message) do { if(!(operation)) { data->parse_fail = 1; data->parse_fail_message = (message); if (tc->instance->debugserver->debugspam_protocol) fprintf(stderr, "CMP error: %s; %s\n", cmp_strerror(ctx), message); return 0; } } while(0)
 #define FIELD_FOUND(field, duplicated_message) do { if(data->fields_set & (field)) { data->parse_fail = 1; data->parse_fail_message = duplicated_message;  return 0; }; field_to_set = (field); } while (0)
 
-MVMint8 skip_all_read_data(cmp_ctx_t *ctx, MVMuint32 size) {
+static MVMint8 skip_all_read_data(cmp_ctx_t *ctx, MVMuint32 size) {
     char dump[1024];
 
     while (size > 1024) {
@@ -2800,7 +2807,7 @@ MVMint8 skip_all_read_data(cmp_ctx_t *ctx, MVMuint32 size) {
     return 1;
 }
 
-MVMint8 skip_whole_object(MVMThreadContext *tc, cmp_ctx_t *ctx, request_data *data) {
+static MVMint8 skip_whole_object(MVMThreadContext *tc, cmp_ctx_t *ctx, request_data *data) {
     cmp_object_t obj;
     MVMuint32 obj_size = 0;
     MVMuint32 index;
@@ -2875,7 +2882,7 @@ MVMint8 skip_whole_object(MVMThreadContext *tc, cmp_ctx_t *ctx, request_data *da
     return 1;
 }
 
-MVMint32 parse_message_map(MVMThreadContext *tc, cmp_ctx_t *ctx, request_data *data) {
+static MVMint32 parse_message_map(MVMThreadContext *tc, cmp_ctx_t *ctx, request_data *data) {
     MVMuint32 map_size = 0;
     MVMuint32 i;
     cmp_object_t obj;
@@ -3205,7 +3212,7 @@ static void debugserver_worker(MVMThreadContext *tc, MVMArgs arg_info) {
 
         error = WSAStartup(wVersionRequested, &wsaData);
         if (error != 0) {
-            MVM_panic(1, "Debugserver: WSAStartup failed with error: %n", error);
+            MVM_panic(1, "Debugserver: WSAStartup failed with error: %d", error);
         }
 #endif
 

@@ -2,7 +2,7 @@
 
 #define DUMP_FULL_CACHES 0
 
-MVMuint32 try_update_cache_entry(MVMThreadContext *tc, MVMDispInlineCacheEntry **target,
+static MVMuint32 try_update_cache_entry(MVMThreadContext *tc, MVMDispInlineCacheEntry **target,
         MVMDispInlineCacheEntry *from, MVMDispInlineCacheEntry *to);
 
 /**
@@ -558,6 +558,7 @@ void MVM_disp_inline_cache_setup(MVMThreadContext *tc, MVMStaticFrame *sf) {
                     break;
                 case MVM_OP_dispatch_v:
                 case MVM_OP_dispatch_i:
+                case MVM_OP_dispatch_u:
                 case MVM_OP_dispatch_n:
                 case MVM_OP_dispatch_s:
                 case MVM_OP_dispatch_o: {
@@ -603,7 +604,7 @@ void MVM_disp_inline_cache_setup(MVMThreadContext *tc, MVMStaticFrame *sf) {
 }
 
 /* Cleans up a cache entry. */
-void cleanup_entry(MVMThreadContext *tc, MVMDispInlineCacheEntry *entry, MVMuint8 destroy_dps) {
+static void cleanup_entry(MVMThreadContext *tc, MVMDispInlineCacheEntry *entry, MVMuint8 destroy_dps) {
     if (!entry)
         return;
     else if (entry->run_getlexstatic == getlexstatic_initial) {

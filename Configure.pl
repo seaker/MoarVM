@@ -48,12 +48,11 @@ GetOptions(\%args, qw(
     build=s host=s big-endian jit! enable-jit
     prefix=s bindir=s libdir=s mastdir=s
     relocatable make-install asan ubsan tsan
-    valgrind telemeh dtrace show-autovect git-cache-dir=s
-    show-autovect-failed:s),
+    valgrind telemeh! dtrace show-autovect git-cache-dir=s
+    show-autovect-failed:s mimalloc! c11-atomics!),
 
     'no-optimize|nooptimize' => sub { $args{optimize} = 0 },
     'no-debug|nodebug' => sub { $args{debug} = 0 },
-    'no-telemeh|notelemeh' => sub { $args{telemeh} = 0 }
 ) or die "See --help for further information\n";
 
 
@@ -273,7 +272,24 @@ else {
     push @hllincludes, 'libuv';
 }
 
-if ($args{'has-libatomic_ops'}) {
+# we just need a minimal ldlibs configured for the stdatomic probe,
+# it will get overwritten later
+$config{ldlibs} = join ' ',
+    $config{lincludes},
+    (map { sprintf $config{ldusr}, $_; } @{$config{usrlibs}}),
+    (map { sprintf $config{ldsys}, $_; } @{$config{syslibs}});
+
+# probe for working stdatomic.h, also used by mimalloc
+build::probe::stdatomic(\%config, \%defaults);
+
+$config{use_c11_atomics} = defined $args{'c11-atomics'}
+    ? $args{'c11-atomics'}   ? 1 : 0
+    : $config{has_stdatomic} ? 1 : 0; # default to on if available
+
+if ($config{use_c11_atomics}) {
+    $defaults{-thirdparty}->{lao} = undef;
+}
+elsif ($args{'has-libatomic_ops'}) {
     $defaults{-thirdparty}->{lao} = undef;
     unshift @{$config{usrlibs}}, 'atomic_ops';
     setup_native_library('atomic_ops') if $config{pkgconfig_works};
@@ -401,6 +417,7 @@ $config{lddebugflags} = sprintf $config{lddebugflags}, defined_or $args{debug}, 
 
 # generate CFLAGS
 my @cflags;
+push @cflags, '-std=c99' if $defaults{os} eq 'mingw32';
 push @cflags, $config{ccmiscflags};
 push @cflags, $config{ccoptiflags}  if $args{optimize};
 push @cflags, $config{ccdebugflags} if $args{debug};
@@ -549,6 +566,37 @@ build::probe::substandard_trig(\%config, \%defaults);
 build::probe::has_isinf_and_isnan(\%config, \%defaults);
 build::probe::unaligned_access(\%config, \%defaults);
 build::probe::ptr_size(\%config, \%defaults);
+
+$config{use_mimalloc} = $args{mimalloc};
+if (!defined $config{use_mimalloc}) {
+    if ($config{has_stdatomic}) {
+        print "Defaulting to mimalloc because you have <stdatomic.h>\n";
+        $config{use_mimalloc} = 1;
+    }
+    elsif ($config{cc} eq 'cl') {
+        print "Defaulting to mimalloc because you are using MSVC\n";
+        $config{use_mimalloc} = 1;
+    }
+    else {
+        print "Defaulting to libc malloc because <stdatomic.h> was not found.\n";
+        $config{use_mimalloc} = 0;
+    }
+}
+
+if ($config{use_mimalloc}) {
+    $config{cflags} .= ' -DMI_SKIP_COLLECT_ON_EXIT';
+    $config{moar_cincludes} .= ' ' . $defaults{ccinc} . '3rdparty/mimalloc/include'
+                             . ' ' . $defaults{ccinc} . '3rdparty/mimalloc/src';
+    $config{install}   .= "\t\$(MKPATH) \"\$(DESTDIR)\$(PREFIX)/include/mimalloc\"\n"
+                       . "\t\$(CP) 3rdparty/mimalloc/include/*.h \"\$(DESTDIR)\$(PREFIX)/include/mimalloc\"\n";
+    push @hllincludes, 'mimalloc';
+    $config{mimalloc_include} = '@ccincsystem@3rdparty/mimalloc';
+    $config{mimalloc_object} = '3rdparty/mimalloc/src/static@obj@';
+}
+else {
+    $config{mimalloc_include} = "";
+    $config{mimalloc_object} = "";
+}
 
 my $archname = $Config{archname};
 if ($args{'jit'}) {
@@ -1083,6 +1131,27 @@ default.
 
 Toggle optimization and debug flags during compile and link. If nothing
 is specified the default is to optimize.
+
+=item --mimalloc
+
+=item --no-mimalloc
+
+Control whether we build with mimalloc or use the C library's malloc.
+
+mimalloc requires either MSVC or working C11 C<< <stdatomic> >>. We probe for
+this, and if found or using MSVC we default to use mimalloc. Otherwise we
+default to the C library's malloc. Specify C<--no-mimalloc> to force use of the
+C library's malloc always. Specify C<--mimalloc> to force use of mimalloc, even
+if the probing thinks that it won't build.
+
+=item --c11-atomics
+
+=item --no-c11-atomics
+
+Use C11 atomics instead of libatomic_ops for atomic operations. The default
+is currently C<--no-c11-atomics> - ie use libatomic_ops. If you set
+C<--c11-atomics> and your compiler does not support C11 atomics, your build
+will fail.
 
 =item --os <os>
 

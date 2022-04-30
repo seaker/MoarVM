@@ -2,8 +2,8 @@
 
 #define FIXKEY_INITIAL_SIZE_LOG2 3
 
-void hash_demolish_internal(MVMThreadContext *tc,
-                            struct MVMFixKeyHashTableControl *control) {
+static void hash_demolish_internal(MVMThreadContext *tc,
+                                   struct MVMFixKeyHashTableControl *control) {
     size_t allocated_items = MVM_fixkey_hash_allocated_items(control);
     size_t entries_size = sizeof(MVMString ***) * allocated_items;
     size_t metadata_size = MVM_hash_round_size_up(allocated_items + 1);
@@ -134,7 +134,7 @@ MVM_STATIC_INLINE MVMString ***hash_insert_internal(MVMThreadContext *tc,
                 } while (old_probe_distance);
 
                 MVMuint32 entries_to_move = find_me_a_gap - ls.metadata;
-                size_t size_to_move = ls.entry_size * entries_to_move;
+                size_t size_to_move = (size_t) ls.entry_size * entries_to_move;
                 /* When we had entries *ascending* this was
                  * memmove(entry_raw + sizeof(MVMString ***), entry_raw,
                  *         sizeof(MVMString ***) * entries_to_move);

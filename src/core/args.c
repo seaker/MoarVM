@@ -81,35 +81,37 @@ MVMCallStackFlattening * MVM_args_perform_flattening(MVMThreadContext *tc, MVMCa
     for (i = 0; i < cs->flag_count; i++) {
         MVMCallsiteFlags flag = cs->arg_flags[i];
         if (flag & MVM_CALLSITE_ARG_FLAT) {
-            /* Positional flattening. */
-            MVMObject *list = source[map[i]].o;
-            MVMuint32 repr = REPR(list)->ID;
-            if ((repr != MVM_REPR_ID_VMArray && repr != MVM_REPR_ID_MultiDimArray)
-                    || !IS_CONCRETE(list))
-                MVM_exception_throw_adhoc(tc,
-                        "Argument flattening array must be a concrete VMArray or MultiDimArray");
-            MVMint64 elems = REPR(list)->elems(tc, STABLE(list), list, OBJECT_BODY(list));
-            if (elems > MVM_ARGS_LIMIT)
-                MVM_exception_throw_adhoc(tc,
-                        "Flattened array has %"PRId64" elements, but argument lists are limited to %"PRId32"",
-                        elems, MVM_ARGS_LIMIT);
-            flatten_counts[i] = (MVMuint16)elems;
-            num_pos += (MVMuint16)elems;
-            num_args += (MVMuint16)elems;
-        }
-        else if (flag & MVM_CALLSITE_ARG_FLAT_NAMED) {
-            /* Named flattening. */
-            MVMObject *hash = source[map[i]].o;
-            if (REPR(hash)->ID != MVM_REPR_ID_MVMHash || !IS_CONCRETE(hash))
-                MVM_exception_throw_adhoc(tc,
-                        "Argument flattening hash must be a concrete VMHash");
-            MVMint64 elems = REPR(hash)->elems(tc, STABLE(hash), hash, OBJECT_BODY(hash));
-            if (elems > MVM_ARGS_LIMIT)
-                MVM_exception_throw_adhoc(tc,
-                        "Flattened hash has %"PRId64" elements, but argument lists are limited to %"PRId32"",
-                        elems, MVM_ARGS_LIMIT);
-            flatten_counts[i] = (MVMuint16)elems;
-            num_args += (MVMuint16)elems;
+            if (flag & MVM_CALLSITE_ARG_NAMED) {
+                /* Named flattening. */
+                MVMObject *hash = source[map[i]].o;
+                if (REPR(hash)->ID != MVM_REPR_ID_MVMHash || !IS_CONCRETE(hash))
+                    MVM_exception_throw_adhoc(tc,
+                            "Argument flattening hash must be a concrete VMHash");
+                MVMint64 elems = REPR(hash)->elems(tc, STABLE(hash), hash, OBJECT_BODY(hash));
+                if (elems > MVM_ARGS_LIMIT)
+                    MVM_exception_throw_adhoc(tc,
+                            "Flattened hash has %"PRId64" elements, but argument lists are limited to %"PRId32"",
+                            elems, MVM_ARGS_LIMIT);
+                flatten_counts[i] = (MVMuint16)elems;
+                num_args += (MVMuint16)elems;
+            }
+            else {
+                /* Positional flattening. */
+                MVMObject *list = source[map[i]].o;
+                MVMuint32 repr = REPR(list)->ID;
+                if ((repr != MVM_REPR_ID_VMArray && repr != MVM_REPR_ID_MultiDimArray)
+                        || !IS_CONCRETE(list))
+                    MVM_exception_throw_adhoc(tc,
+                            "Argument flattening array must be a concrete VMArray or MultiDimArray");
+                MVMint64 elems = REPR(list)->elems(tc, STABLE(list), list, OBJECT_BODY(list));
+                if (elems > MVM_ARGS_LIMIT)
+                    MVM_exception_throw_adhoc(tc,
+                            "Flattened array has %"PRId64" elements, but argument lists are limited to %"PRId32"",
+                            elems, MVM_ARGS_LIMIT);
+                flatten_counts[i] = (MVMuint16)elems;
+                num_pos += (MVMuint16)elems;
+                num_args += (MVMuint16)elems;
+            }
         }
         else if (flag & MVM_CALLSITE_ARG_NAMED) {
             /* Named arg. */
@@ -136,79 +138,85 @@ MVMCallStackFlattening * MVM_args_perform_flattening(MVMThreadContext *tc, MVMCa
     for (i = 0; i < cs->flag_count; i++) {
         MVMCallsiteFlags flag = cs->arg_flags[i];
         if (flag & MVM_CALLSITE_ARG_FLAT) {
-            /* Positional flattening. */
-            if (flatten_counts[i] == 0)
-                continue;
-            MVMuint16 j;
-            MVMObject *list = source[map[i]].o;
-            MVMStorageSpec lss = REPR(list)->pos_funcs.get_elem_storage_spec(tc, STABLE(list));
-            for (j = 0; j < flatten_counts[i]; j++) {
-                switch (lss.inlineable ? lss.boxed_primitive : 0) {
-                    case MVM_STORAGE_SPEC_BP_INT:
-                        record->produced_cs.arg_flags[cur_new_arg] = MVM_CALLSITE_ARG_INT;
-                        record->arg_info.source[cur_new_arg].i64 = MVM_repr_at_pos_i(tc, list, j);
-                        break;
-                    case MVM_STORAGE_SPEC_BP_NUM:
-                        record->produced_cs.arg_flags[cur_new_arg] = MVM_CALLSITE_ARG_NUM;
-                        record->arg_info.source[cur_new_arg].n64 = MVM_repr_at_pos_n(tc, list, j);
-                        break;
-                    case MVM_STORAGE_SPEC_BP_STR:
-                        record->produced_cs.arg_flags[cur_new_arg] = MVM_CALLSITE_ARG_STR;
-                        record->arg_info.source[cur_new_arg].s = MVM_repr_at_pos_s(tc, list, j);
-                        break;
-                    default:
-                        record->produced_cs.arg_flags[cur_new_arg] = MVM_CALLSITE_ARG_OBJ;
-                        record->arg_info.source[cur_new_arg].o = MVM_repr_at_pos_o(tc, list, j);
-                        break;
+            if (flag & MVM_CALLSITE_ARG_NAMED) {
+                /* Named flattening. Hash randomization means that iterating the
+                 * hash can produce many orders of the same keys, which will ruin
+                 * our hit rate on the callsite intern cache (and in turn cause
+                 * fake megamorphic blowups at callsites). Thus we sort the keys;
+                 * by hash code shall suffice, since collisions are unlikely. */
+                MVMuint32 limit = flatten_counts[i];
+                if (limit == 0)
+                    continue;
+                ArgNameAndValue *anv = alloca(limit * sizeof(ArgNameAndValue));
+                MVMObject *hash = source[map[i]].o;
+                MVMHashBody *body = &((MVMHash *)hash)->body;
+                MVMStrHashTable *hashtable = &(body->hashtable);
+                MVMStrHashIterator iterator = MVM_str_hash_first(tc, hashtable);
+                MVMuint32 seen = 0;
+                while (seen < limit && /* Defend against hash changes */
+                        !MVM_str_hash_at_end(tc, hashtable, iterator)) {
+                    MVMHashEntry *current = MVM_str_hash_current_nocheck(tc,
+                            hashtable, iterator);
+                    anv[seen].name = current->hash_handle.key;
+                    anv[seen].value = current->value;
+                    seen++;
+                    iterator = MVM_str_hash_next(tc, hashtable, iterator);
                 }
-                cur_new_arg++;
+                qsort(anv, seen, sizeof(ArgNameAndValue), key_sort_by_hash);
+                MVMuint32 j;
+                for (j = 0; j < seen; j++) {
+                    MVMString *arg_name = anv[j].name;
+                    MVMint32 already_index = callsite_name_index(tc, record, cur_new_name,
+                            arg_name);
+                    if (already_index < 0) {
+                        /* Didn't see this name yet, so add to callsite and args. */
+                        record->produced_cs.arg_flags[cur_new_arg] =
+                                MVM_CALLSITE_ARG_NAMED | MVM_CALLSITE_ARG_OBJ;
+                        record->arg_info.source[cur_new_arg].o = anv[j].value;
+                        cur_new_arg++;
+                        record->produced_cs.arg_names[cur_new_name] = arg_name;
+                        cur_new_name++;
+                    }
+                    else {
+                        /* New value for an existing name; replace the value and
+                         * ensure correct type flag. */
+                        record->produced_cs.arg_flags[already_index] =
+                                MVM_CALLSITE_ARG_NAMED | MVM_CALLSITE_ARG_OBJ;
+                        record->arg_info.source[already_index].o = anv[j].value;
+                    }
+                }
             }
-        }
-        else if (flag & MVM_CALLSITE_ARG_FLAT_NAMED) {
-            /* Named flattening. Hash randomization means that iterating the
-             * hash can produce many orders of the same keys, which will ruin
-             * our hit rate on the callsite intern cache (and in turn cause
-             * fake megamorphic blowups at callsites). Thus we sort the keys;
-             * by hash code shall suffice, since collisions are unlikely. */
-            MVMuint32 limit = flatten_counts[i];
-            if (limit == 0)
-                continue;
-            ArgNameAndValue *anv = alloca(limit * sizeof(ArgNameAndValue));
-            MVMObject *hash = source[map[i]].o;
-            MVMHashBody *body = &((MVMHash *)hash)->body;
-            MVMStrHashTable *hashtable = &(body->hashtable);
-            MVMStrHashIterator iterator = MVM_str_hash_first(tc, hashtable);
-            MVMuint32 seen = 0;
-            while (seen < limit && /* Defend against hash changes */
-                    !MVM_str_hash_at_end(tc, hashtable, iterator)) {
-                MVMHashEntry *current = MVM_str_hash_current_nocheck(tc,
-                        hashtable, iterator);
-                anv[seen].name = current->hash_handle.key;
-                anv[seen].value = current->value;
-                seen++;
-                iterator = MVM_str_hash_next(tc, hashtable, iterator);
-            }
-            qsort(anv, seen, sizeof(ArgNameAndValue), key_sort_by_hash);
-            MVMuint32 j;
-            for (j = 0; j < seen; j++) {
-                MVMString *arg_name = anv[j].name;
-                MVMint32 already_index = callsite_name_index(tc, record, cur_new_name,
-                        arg_name);
-                if (already_index < 0) {
-                    /* Didn't see this name yet, so add to callsite and args. */
-                    record->produced_cs.arg_flags[cur_new_arg] =
-                            MVM_CALLSITE_ARG_NAMED | MVM_CALLSITE_ARG_OBJ;
-                    record->arg_info.source[cur_new_arg].o = anv[j].value;
+            else {
+                /* Positional flattening. */
+                if (flatten_counts[i] == 0)
+                    continue;
+                MVMuint16 j;
+                MVMObject *list = source[map[i]].o;
+                MVMStorageSpec lss = REPR(list)->pos_funcs.get_elem_storage_spec(tc, STABLE(list));
+                for (j = 0; j < flatten_counts[i]; j++) {
+                    switch (lss.inlineable ? lss.boxed_primitive : 0) {
+                        case MVM_STORAGE_SPEC_BP_INT:
+                            record->produced_cs.arg_flags[cur_new_arg] = MVM_CALLSITE_ARG_INT;
+                            record->arg_info.source[cur_new_arg].i64 = MVM_repr_at_pos_i(tc, list, j);
+                            break;
+                        case MVM_STORAGE_SPEC_BP_UINT64:
+                            record->produced_cs.arg_flags[cur_new_arg] = MVM_CALLSITE_ARG_UINT;
+                            record->arg_info.source[cur_new_arg].u64 = MVM_repr_at_pos_u(tc, list, j);
+                            break;
+                        case MVM_STORAGE_SPEC_BP_NUM:
+                            record->produced_cs.arg_flags[cur_new_arg] = MVM_CALLSITE_ARG_NUM;
+                            record->arg_info.source[cur_new_arg].n64 = MVM_repr_at_pos_n(tc, list, j);
+                            break;
+                        case MVM_STORAGE_SPEC_BP_STR:
+                            record->produced_cs.arg_flags[cur_new_arg] = MVM_CALLSITE_ARG_STR;
+                            record->arg_info.source[cur_new_arg].s = MVM_repr_at_pos_s(tc, list, j);
+                            break;
+                        default:
+                            record->produced_cs.arg_flags[cur_new_arg] = MVM_CALLSITE_ARG_OBJ;
+                            record->arg_info.source[cur_new_arg].o = MVM_repr_at_pos_o(tc, list, j);
+                            break;
+                    }
                     cur_new_arg++;
-                    record->produced_cs.arg_names[cur_new_name] = arg_name;
-                    cur_new_name++;
-                }
-                else {
-                    /* New value for an existing name; replace the value and
-                     * ensure correct type flag. */
-                    record->produced_cs.arg_flags[already_index] =
-                            MVM_CALLSITE_ARG_NAMED | MVM_CALLSITE_ARG_OBJ;
-                    record->arg_info.source[already_index].o = anv[j].value;
                 }
             }
         }
@@ -347,6 +355,10 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
                     result.arg.i64 = MVM_repr_get_int(tc, obj); \
                     result.flags = MVM_CALLSITE_ARG_INT; \
                     break; \
+                case MVM_CALLSITE_ARG_UINT: \
+                    result.arg.u64 = MVM_repr_get_uint(tc, obj); \
+                    result.flags = MVM_CALLSITE_ARG_UINT; \
+                    break; \
                 case MVM_CALLSITE_ARG_NUM: \
                     result.arg.n64 = MVM_repr_get_num(tc, obj); \
                     result.flags = MVM_CALLSITE_ARG_NUM; \
@@ -362,11 +374,16 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
         if (!(result.flags & type_flag)) { \
             switch (type_flag) { \
                 case MVM_CALLSITE_ARG_INT: \
+                case MVM_CALLSITE_ARG_UINT: \
                     switch (result.flags & MVM_CALLSITE_ARG_TYPE_MASK) { \
                         case MVM_CALLSITE_ARG_NUM: \
                             MVM_exception_throw_adhoc(tc, "Expected native int argument, but got num"); \
                         case MVM_CALLSITE_ARG_STR: \
                             MVM_exception_throw_adhoc(tc, "Expected native int argument, but got str"); \
+                        case MVM_CALLSITE_ARG_INT: \
+                        case MVM_CALLSITE_ARG_UINT: \
+                            /* Ignore signedness mismatch to facilitate rebootstrapping */ \
+                            break; \
                         default: \
                             MVM_exception_throw_adhoc(tc, "unreachable unbox 1"); \
                     } \
@@ -374,6 +391,7 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
                 case MVM_CALLSITE_ARG_NUM: \
                     switch (result.flags & MVM_CALLSITE_ARG_TYPE_MASK) { \
                         case MVM_CALLSITE_ARG_INT: \
+                        case MVM_CALLSITE_ARG_UINT: \
                             MVM_exception_throw_adhoc(tc, "Expected native num argument, but got int"); \
                         case MVM_CALLSITE_ARG_STR: \
                             MVM_exception_throw_adhoc(tc, "Expected native num argument, but got str"); \
@@ -384,6 +402,7 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
                 case MVM_CALLSITE_ARG_STR: \
                     switch (result.flags & MVM_CALLSITE_ARG_TYPE_MASK) { \
                         case MVM_CALLSITE_ARG_INT: \
+                        case MVM_CALLSITE_ARG_UINT: \
                             MVM_exception_throw_adhoc(tc, "Expected native str argument, but got int"); \
                         case MVM_CALLSITE_ARG_NUM: \
                             MVM_exception_throw_adhoc(tc, "Expected native str argument, but got num"); \
@@ -439,6 +458,26 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
     } \
 } while (0)
 
+#define autobox_uint(tc, target, result, dest) do { \
+    MVMObject *box, *box_type; \
+    MVMuint64 result_int = result; \
+    MVMObject *autobox_temp; \
+    box_type = target->static_info->body.cu->body.hll_config->int_box_type; \
+    autobox_temp = ((MVMint64)(result)) < 0 ? NULL : MVM_intcache_get(tc, box_type, result_int); \
+    if (autobox_temp == NULL) { \
+        box = REPR(box_type)->allocate(tc, STABLE(box_type)); \
+        MVM_gc_root_temp_push(tc, (MVMCollectable **)&box); \
+        if (REPR(box)->initialize) \
+            REPR(box)->initialize(tc, STABLE(box), box, OBJECT_BODY(box)); \
+        REPR(box)->box_funcs.set_uint(tc, STABLE(box), box, OBJECT_BODY(box), result_int); \
+        MVM_gc_root_temp_pop(tc); \
+        dest = box; \
+    } \
+    else { \
+        dest = autobox_temp; \
+    } \
+} while (0)
+
 #define autobox_switch(tc, result) do { \
     if (result.exists) { \
         switch (result.flags & MVM_CALLSITE_ARG_TYPE_MASK) { \
@@ -446,6 +485,9 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
                 break; \
             case MVM_CALLSITE_ARG_INT: \
                 autobox_int(tc, tc->cur_frame, result.arg.i64, result.arg.o); \
+                break; \
+            case MVM_CALLSITE_ARG_UINT: \
+                autobox_uint(tc, tc->cur_frame, result.arg.u64, result.arg.o); \
                 break; \
             case MVM_CALLSITE_ARG_NUM: \
                 autobox(tc, tc->cur_frame, result.arg.n64, num_box_type, 0, set_num, result.arg.o); \
@@ -510,13 +552,13 @@ MVMArgInfo MVM_args_get_optional_pos_str(MVMThreadContext *tc, MVMArgProcContext
 MVMuint64 MVM_args_get_required_pos_uint(MVMThreadContext *tc, MVMArgProcContext *ctx, MVMuint32 pos) {
     MVMArgInfo result;
     args_get_pos(tc, ctx, pos, MVM_ARG_REQUIRED, result);
-    autounbox(tc, MVM_CALLSITE_ARG_INT, "unsigned integer", result);
+    autounbox(tc, MVM_CALLSITE_ARG_UINT, "unsigned integer", result);
     return result.arg.u64;
 }
 MVMArgInfo MVM_args_get_optional_pos_uint(MVMThreadContext *tc, MVMArgProcContext *ctx, MVMuint32 pos) {
     MVMArgInfo result;
     args_get_pos(tc, ctx, pos, MVM_ARG_OPTIONAL, result);
-    autounbox(tc, MVM_CALLSITE_ARG_INT, "unsigned integer", result);
+    autounbox(tc, MVM_CALLSITE_ARG_UINT, "unsigned integer", result);
     return result;
 }
 
@@ -575,7 +617,7 @@ MVMArgInfo MVM_args_get_named_str(MVMThreadContext *tc, MVMArgProcContext *ctx, 
 MVMArgInfo MVM_args_get_named_uint(MVMThreadContext *tc, MVMArgProcContext *ctx, MVMString *name, MVMuint8 required) {
     MVMArgInfo result;
     args_get_named(tc, ctx, name, required);
-    autounbox(tc, MVM_CALLSITE_ARG_INT, "unsigned integer", result);
+    autounbox(tc, MVM_CALLSITE_ARG_UINT, "unsigned integer", result);
     return result;
 }
 void MVM_args_assert_nameds_used(MVMThreadContext *tc, MVMArgProcContext *ctx) {
@@ -619,7 +661,7 @@ static MVMObject * decont_result(MVMThreadContext *tc, MVMObject *result) {
         return result;
     }
 }
-void save_for_exit_handler(MVMThreadContext *tc, MVMObject *result) {
+static void save_for_exit_handler(MVMThreadContext *tc, MVMObject *result) {
     MVMFrameExtra *e = MVM_frame_extra(tc, tc->cur_frame);
     e->exit_handler_result = result;
 }
@@ -649,6 +691,9 @@ void MVM_args_set_result_obj(MVMThreadContext *tc, MVMObject *result, MVMint32 f
             case MVM_RETURN_INT:
                 target->return_value->i64 = MVM_repr_get_int(tc, decont_result(tc, result));
                 break;
+            case MVM_RETURN_UINT:
+                target->return_value->u64 = MVM_repr_get_uint(tc, decont_result(tc, result));
+                break;
             case MVM_RETURN_NUM:
                 target->return_value->n64 = MVM_repr_get_num(tc, decont_result(tc, result));
                 break;
@@ -674,6 +719,9 @@ void MVM_args_set_dispatch_result_obj(MVMThreadContext *tc, MVMFrame *target, MV
             break;
         case MVM_RETURN_INT:
             target->return_value->i64 = MVM_repr_get_int(tc, decont_result(tc, result));
+            break;
+        case MVM_RETURN_UINT:
+            target->return_value->u64 = MVM_repr_get_uint(tc, decont_result(tc, result));
             break;
         case MVM_RETURN_NUM:
             target->return_value->n64 = MVM_repr_get_num(tc, decont_result(tc, result));
@@ -708,6 +756,9 @@ void MVM_args_set_result_int(MVMThreadContext *tc, MVMint64 result, MVMint32 fra
             case MVM_RETURN_INT:
                 target->return_value->i64 = result;
                 break;
+            case MVM_RETURN_UINT:
+                target->return_value->u64 = result;
+                break;
             case MVM_RETURN_NUM:
                 target->return_value->n64 = (MVMnum64)result;
                 break;
@@ -727,12 +778,82 @@ void MVM_args_set_result_int(MVMThreadContext *tc, MVMint64 result, MVMint32 fra
     }
 }
 
+void MVM_args_set_result_uint(MVMThreadContext *tc, MVMuint64 result, MVMint32 frameless) {
+    MVMFrame *target;
+    if (frameless) {
+        target = tc->cur_frame;
+    }
+    else {
+        if (MVM_spesh_log_is_caller_logging(tc))
+            MVM_spesh_log_return_type(tc, NULL);
+        else if (MVM_spesh_log_is_logging(tc))
+            MVM_spesh_log_return_to_unlogged(tc);
+        target = tc->cur_frame->caller;
+    }
+    if (target) {
+        switch (target->return_type) {
+            case MVM_RETURN_VOID:
+                if (tc->cur_frame->static_info->body.has_exit_handler)
+                    save_for_exit_handler(tc,
+                        MVM_repr_box_int(tc, MVM_hll_current(tc)->int_box_type, result));
+                break;
+            case MVM_RETURN_INT:
+                target->return_value->i64 = result;
+                break;
+            case MVM_RETURN_UINT:
+                target->return_value->u64 = result;
+                break;
+            case MVM_RETURN_NUM:
+                target->return_value->n64 = (MVMnum64)result;
+                break;
+            case MVM_RETURN_OBJ: {
+                /* dereference target first to avoid GC issue */
+                MVMRegister *return_value = (frameless ? tc->cur_frame : tc->cur_frame->caller)->return_value;
+                autobox_int(tc, target, result, return_value->o);
+                break;
+            }
+            case MVM_RETURN_ALLOMORPH:
+                target->return_type = MVM_RETURN_UINT;
+                target->return_value->u64 = result;
+                break;
+            default:
+                MVM_exception_throw_adhoc(tc, "Result return coercion from uint NYI; expects type %u", target->return_type);
+        }
+    }
+}
+
 void MVM_args_set_dispatch_result_int(MVMThreadContext *tc, MVMFrame *target, MVMint64 result) {
     switch (target->return_type) {
         case MVM_RETURN_VOID:
             break;
         case MVM_RETURN_INT:
             target->return_value->i64 = result;
+            break;
+        case MVM_RETURN_UINT:
+            target->return_value->u64 = result;
+            break;
+        case MVM_RETURN_NUM:
+            target->return_value->n64 = (MVMnum64)result;
+            break;
+        case MVM_RETURN_OBJ: {
+            MVMRegister *return_value = target->return_value; /* dereference target first to avoid GC issue */
+            autobox_int(tc, target, result, return_value->o);
+            break;
+        }
+        default:
+            MVM_exception_throw_adhoc(tc, "Result return coercion from int NYI; expects type %u", target->return_type);
+    }
+}
+
+void MVM_args_set_dispatch_result_uint(MVMThreadContext *tc, MVMFrame *target, MVMuint64 result) {
+    switch (target->return_type) {
+        case MVM_RETURN_VOID:
+            break;
+        case MVM_RETURN_INT:
+            target->return_value->i64 = result;
+            break;
+        case MVM_RETURN_UINT:
+            target->return_value->u64 = result;
             break;
         case MVM_RETURN_NUM:
             target->return_value->n64 = (MVMnum64)result;
@@ -772,6 +893,9 @@ void MVM_args_set_result_num(MVMThreadContext *tc, MVMnum64 result, MVMint32 fra
             case MVM_RETURN_INT:
                 target->return_value->i64 = (MVMint64)result;
                 break;
+            case MVM_RETURN_UINT:
+                target->return_value->u64 = (MVMuint64)result;
+                break;
             case MVM_RETURN_OBJ: {
                 /* dereference target first to avoid GC issue */
                 MVMRegister *return_value = (frameless ? tc->cur_frame : tc->cur_frame->caller)->return_value;
@@ -797,6 +921,9 @@ void MVM_args_set_dispatch_result_num(MVMThreadContext *tc, MVMFrame *target, MV
             break;
         case MVM_RETURN_INT:
             target->return_value->i64 = (MVMint64)result;
+            break;
+        case MVM_RETURN_UINT:
+            target->return_value->u64 = (MVMuint64)result;
             break;
         case MVM_RETURN_OBJ: {
             MVMRegister *return_value = target->return_value; /* dereference target first to avoid GC issue */
@@ -958,6 +1085,10 @@ MVMObject * MVM_args_slurpy_positional(MVMThreadContext *tc, MVMArgProcContext *
                 box_slurpy_pos_int(tc, type, result, box, arg_info.arg.i64, reg, int_box_type, "int", set_int);
                 break;
             }
+            case MVM_CALLSITE_ARG_UINT:{
+                box_slurpy_pos_int(tc, type, result, box, arg_info.arg.u64, reg, int_box_type, "int", set_int); //FIXME need box_slurpy_pos_uint
+                break;
+            }
             case MVM_CALLSITE_ARG_NUM: {
                 box_slurpy_pos(tc, type, result, box, arg_info.arg.n64, reg, num_box_type, "num", set_num);
                 break;
@@ -1062,6 +1193,14 @@ MVMObject * MVM_args_slurpy_named(MVMThreadContext *tc, MVMArgProcContext *ctx) 
             case MVM_CALLSITE_ARG_INT: {
                 MVM_gc_root_temp_push(tc, (MVMCollectable **)&key);
                 box_slurpy_named_int(tc, type, result, box, arg_info.arg.i64, reg, key);
+                MVM_gc_root_temp_pop(tc);
+                if (reset_ctx)
+                    ctx = &(tc->cur_frame->params);
+                break;
+            }
+            case MVM_CALLSITE_ARG_UINT: {
+                MVM_gc_root_temp_push(tc, (MVMCollectable **)&key);
+                box_slurpy_named_int(tc, type, result, box, arg_info.arg.u64, reg, key); // FIXME need box_slurpy_named_uint
                 MVM_gc_root_temp_pop(tc);
                 if (reset_ctx)
                     ctx = &(tc->cur_frame->params);

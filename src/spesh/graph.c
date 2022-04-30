@@ -161,17 +161,20 @@ static MVMint32 spesh_dispatchy(MVMuint16 opcode) {
 int MVM_spesh_graph_ins_ends_bb(MVMThreadContext *tc, const MVMOpInfo *info) {
     switch (info->opcode) {
     case MVM_OP_return_i:
+    case MVM_OP_return_u:
     case MVM_OP_return_n:
     case MVM_OP_return_s:
     case MVM_OP_return_o:
     case MVM_OP_return:
     case MVM_OP_dispatch_v:
     case MVM_OP_dispatch_i:
+    case MVM_OP_dispatch_u:
     case MVM_OP_dispatch_n:
     case MVM_OP_dispatch_s:
     case MVM_OP_dispatch_o:
     case MVM_OP_sp_dispatch_v:
     case MVM_OP_sp_dispatch_i:
+    case MVM_OP_sp_dispatch_u:
     case MVM_OP_sp_dispatch_n:
     case MVM_OP_sp_dispatch_s:
     case MVM_OP_sp_dispatch_o:
@@ -1156,7 +1159,7 @@ static SSAVarInfo * initialize_ssa_var_info(MVMThreadContext *tc, MVMSpeshGraph 
     return var_info;
 }
 
-MVMOpInfo *get_phi(MVMThreadContext *tc, MVMSpeshGraph *g, MVMuint32 nrargs) {
+MVMOpInfo *MVM_spesh_graph_get_phi(MVMThreadContext *tc, MVMSpeshGraph *g, MVMuint32 nrargs) {
     MVMOpInfo *result = NULL;
 
     /* Check number of args to phi isn't huge. */
@@ -1198,7 +1201,7 @@ MVMOpInfo *get_phi(MVMThreadContext *tc, MVMSpeshGraph *g, MVMuint32 nrargs) {
 /* Inserts SSA phi functions at the required places in the graph. */
 void MVM_spesh_graph_place_phi(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *bb, MVMint32 n, MVMuint16 var) {
     MVMint32     i;
-    MVMOpInfo   *phi_op  = get_phi(tc, g, n + 1);
+    MVMOpInfo   *phi_op  = MVM_spesh_graph_get_phi(tc, g, n + 1);
     MVMSpeshIns *ins     = MVM_spesh_alloc(tc, g, sizeof(MVMSpeshIns));
     ins->info            = phi_op;
     ins->operands        = MVM_spesh_alloc(tc, g, phi_op->num_operands * sizeof(MVMSpeshOperand));
@@ -1534,8 +1537,8 @@ void MVM_spesh_graph_mark(MVMThreadContext *tc, MVMSpeshGraph *g, MVMGCWorklist 
         MVM_gc_worklist_add(tc, worklist, &(g->spesh_slots[i]));
 
     /* Mark inlines. */
-    for (i = 0; i < g->num_inlines; i++)
-        MVM_gc_worklist_add(tc, worklist, &(g->inlines[i].sf));
+    for (MVMuint32 k = 0; k < g->num_inlines; k++)
+        MVM_gc_worklist_add(tc, worklist, &(g->inlines[k].sf));
 
     /* Mark spesh candidate. */
     if (g->cand)
@@ -1574,8 +1577,8 @@ void MVM_spesh_graph_describe(MVMThreadContext *tc, MVMSpeshGraph *g, MVMHeapSna
         MVM_profile_heap_add_collectable_rel_idx(tc, snapshot, g->spesh_slots[i], i);
 
     /* Mark inlines. */
-    for (i = 0; i < g->num_inlines; i++)
-        MVM_profile_heap_add_collectable_rel_idx(tc, snapshot, (MVMCollectable *)g->inlines[i].sf, i);
+    for (MVMuint32 k = 0; k < g->num_inlines; k++)
+        MVM_profile_heap_add_collectable_rel_idx(tc, snapshot, (MVMCollectable *)g->inlines[k].sf, k);
 }
 
 /* Destroys a spesh graph, deallocating all its associated memory. */

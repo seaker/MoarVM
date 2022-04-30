@@ -21,7 +21,7 @@ struct MVMContainerSpec {
 
     /* Native container stores. */
     void (*store_i) (MVMThreadContext *tc, MVMObject *cont, MVMint64 value);
-    void (*store_u) (MVMThreadContext *tc, MVMObject *cont, MVMint64 value);
+    void (*store_u) (MVMThreadContext *tc, MVMObject *cont, MVMuint64 value);
     void (*store_n) (MVMThreadContext *tc, MVMObject *cont, MVMnum64 value);
     void (*store_s) (MVMThreadContext *tc, MVMObject *cont, MVMString *value);
 
@@ -57,8 +57,8 @@ struct MVMContainerSpec {
      * operation, and atomic store operation. */
     void (*cas) (MVMThreadContext *tc, MVMObject *cont, MVMObject *expected,
         MVMObject *value, MVMRegister *result);
-    MVMObject * (*atomic_load) (MVMThreadContext *tc, MVMObject *cont);
-    void (*atomic_store) (MVMThreadContext *tc, MVMObject *cont, MVMObject *value);
+    MVMObject * (*load_atomic) (MVMThreadContext *tc, MVMObject *cont);
+    void (*store_atomic) (MVMThreadContext *tc, MVMObject *cont, MVMObject *value);
 
     /* Set this to a non-zero value if a fetch promises to never invoke any
      * code. This means the VM knows it can safely decontainerize in places

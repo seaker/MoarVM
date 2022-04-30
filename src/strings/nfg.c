@@ -18,7 +18,7 @@ static MVMint32 find_child_node_idx(MVMThreadContext *tc, const MVMNFGTrieNode *
 }
 
 /* Does a lookup in the trie for a synthetic for the specified codepoints. */
-MVMNFGTrieNode * find_child_node(MVMThreadContext *tc, const MVMNFGTrieNode *node, MVMCodepoint cp) {
+static MVMNFGTrieNode * find_child_node(MVMThreadContext *tc, const MVMNFGTrieNode *node, MVMCodepoint cp) {
     MVMint32 idx = find_child_node_idx(tc, node, cp);
     return idx >= 0 ? node->next_codes[idx].node : NULL;
 }
@@ -177,6 +177,7 @@ static MVMGrapheme32 add_synthetic(MVMThreadContext *tc, MVMCodepoint *codes, MV
             if (cached == codes[i] || MVM_UNICODE_PVALUE_GCB_PREPEND ==
                 (cached_GCB = MVM_unicode_codepoint_get_property_int(tc, (cached = codes[i]),
                     MVM_UNICODE_PROPERTY_GRAPHEME_CLUSTER_BREAK))) {
+                /* do nothing */
             }
             else {
                 /* If we see an Extend then this is a degenerate without any

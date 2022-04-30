@@ -114,7 +114,7 @@ static unsigned int lastSerializedIndex = 0;
 static unsigned long long beginningEpoch = 0;
 static unsigned int telemetry_active = 0;
 
-struct TelemetryRecord *newRecord()
+static struct TelemetryRecord *newRecord()
 {
     AO_t newBufferIndex, recordIndex;
     struct TelemetryRecord *record;
@@ -203,10 +203,10 @@ MVM_PUBLIC void MVM_telemetry_interval_annotate_dynamic(uintptr_t subject, int i
     record->u.annotation_dynamic.intervalID = intervalID;
 
     /* Dynamic description arbitrarily limited for performance reasons. */
-    record->u.annotation_dynamic.description = strndup(description, 1024);
+    record->u.annotation_dynamic.description = MVM_strndup(description, 1024);
 }
 
-void calibrateTSC(FILE *outfile)
+static void calibrateTSC(FILE *outfile)
 {
     unsigned long long startTsc, endTsc;
     uint64_t startTime, endTime;
@@ -232,7 +232,7 @@ void calibrateTSC(FILE *outfile)
 static uv_thread_t backgroundSerializationThread;
 static volatile int continueBackgroundSerialization = 1;
 
-void serializeTelemetryBufferRange(FILE *outfile, unsigned int serializationStart, unsigned int serializationEnd)
+static void serializeTelemetryBufferRange(FILE *outfile, unsigned int serializationStart, unsigned int serializationEnd)
 {
     unsigned int i;
     for(i = serializationStart; i < serializationEnd; i++) {
@@ -261,13 +261,13 @@ void serializeTelemetryBufferRange(FILE *outfile, unsigned int serializationStar
                 break;
             case DynamicString:
                 fprintf(outfile,  "%15s ???  \"%s\" (%d)\n", " ", record->u.annotation_dynamic.description, record->u.annotation_dynamic.intervalID);
-                free(record->u.annotation_dynamic.description);
+                MVM_free(record->u.annotation_dynamic.description);
                 break;
         }
     }
 }
 
-void serializeTelemetryBuffer(FILE *outfile)
+static void serializeTelemetryBuffer(FILE *outfile)
 {
     unsigned int serializationEnd = recordBufferIndex;
     unsigned int serializationStart = lastSerializedIndex;
@@ -282,7 +282,7 @@ void serializeTelemetryBuffer(FILE *outfile)
     lastSerializedIndex = serializationEnd;
 }
 
-void backgroundSerialization(void *outfile)
+static void backgroundSerialization(void *outfile)
 {
     while(continueBackgroundSerialization) {
         MVM_sleep(500);

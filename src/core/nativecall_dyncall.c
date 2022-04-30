@@ -166,8 +166,7 @@ static void * unmarshal_callback(MVMThreadContext *tc, MVMCode *callback, MVMObj
                 case MVM_NATIVECALL_ARG_UINT:
                 case MVM_NATIVECALL_ARG_ULONG:
                 case MVM_NATIVECALL_ARG_ULONGLONG:
-                    /* TODO: should probably be UINT, when we can support that. */
-                    cs->arg_flags[i - 1] = MVM_CALLSITE_ARG_INT;
+                    cs->arg_flags[i - 1] = MVM_CALLSITE_ARG_UINT;
                     break;
                 case MVM_NATIVECALL_ARG_FLOAT:
                 case MVM_NATIVECALL_ARG_DOUBLE:
@@ -308,19 +307,19 @@ static char callback_handler(DCCallback *cb, DCArgs *cb_args, DCValue *cb_result
                 num_roots++;
                 break;
             case MVM_NATIVECALL_ARG_UCHAR:
-                args[i - 1].i64 = dcbArgUChar(cb_args);
+                args[i - 1].u64 = dcbArgUChar(cb_args);
                 break;
             case MVM_NATIVECALL_ARG_USHORT:
-                args[i - 1].i64 = dcbArgUShort(cb_args);
+                args[i - 1].u64 = dcbArgUShort(cb_args);
                 break;
             case MVM_NATIVECALL_ARG_UINT:
-                args[i - 1].i64 = dcbArgUInt(cb_args);
+                args[i - 1].u64 = dcbArgUInt(cb_args);
                 break;
             case MVM_NATIVECALL_ARG_ULONG:
-                args[i - 1].i64 = dcbArgULong(cb_args);
+                args[i - 1].u64 = dcbArgULong(cb_args);
                 break;
             case MVM_NATIVECALL_ARG_ULONGLONG:
-                args[i - 1].i64 = dcbArgULongLong(cb_args);
+                args[i - 1].u64 = dcbArgULongLong(cb_args);
                 break;
             default:
                 MVM_telemetry_interval_stop(tc, interval_id, "nativecall callback handler failed");
@@ -581,19 +580,19 @@ MVMObject * MVM_nativecall_invoke(MVMThreadContext *tc, MVMObject *res_type,
                 break;
             }
             case MVM_NATIVECALL_ARG_UCHAR:
-                handle_arg("integer", cont_i, DCuchar, i64, dcArgChar, MVM_nativecall_unmarshal_uchar);
+                handle_arg("integer", cont_u, DCuchar, u64, dcArgChar, MVM_nativecall_unmarshal_uchar);
                 break;
             case MVM_NATIVECALL_ARG_USHORT:
-                handle_arg("integer", cont_i, DCushort, i64, dcArgShort, MVM_nativecall_unmarshal_ushort);
+                handle_arg("integer", cont_u, DCushort, u64, dcArgShort, MVM_nativecall_unmarshal_ushort);
                 break;
             case MVM_NATIVECALL_ARG_UINT:
-                handle_arg("integer", cont_i, DCuint, i64, dcArgInt, MVM_nativecall_unmarshal_uint);
+                handle_arg("integer", cont_u, DCuint, u64, dcArgInt, MVM_nativecall_unmarshal_uint);
                 break;
             case MVM_NATIVECALL_ARG_ULONG:
-                handle_arg("integer", cont_i, DCulong, i64, dcArgLong, MVM_nativecall_unmarshal_ulong);
+                handle_arg("integer", cont_u, DCulong, u64, dcArgLong, MVM_nativecall_unmarshal_ulong);
                 break;
             case MVM_NATIVECALL_ARG_ULONGLONG:
-                handle_arg("integer", cont_i, DCulonglong, i64, dcArgLongLong, MVM_nativecall_unmarshal_ulonglong);
+                handle_arg("integer", cont_u, DCulonglong, u64, dcArgLongLong, MVM_nativecall_unmarshal_ulonglong);
                 break;
             default:
                 MVM_telemetry_interval_stop(tc, interval_id, "nativecall invoke failed");
@@ -801,7 +800,11 @@ MVMObject * MVM_nativecall_invoke(MVMThreadContext *tc, MVMObject *res_type,
     /* Free any memory that we need to. */
     if (free_strs)
         for (i = 0; i < num_strs; i++)
+#ifdef MVM_USE_MIMALLOC
+            free(free_strs[i]);
+#else
             MVM_free(free_strs[i]);
+#endif
 
     /* Finally, free call VM. */
     dcFree(vm);
@@ -839,19 +842,19 @@ static void update_rws(MVMThreadContext *tc, void **free_rws, MVMint16 num_args,
                         MVM_6model_container_assign_n(tc, value, (MVMnum64)*(DCdouble *)free_rws[num_rws]);
                         break;
                     case MVM_NATIVECALL_ARG_UCHAR:
-                        MVM_6model_container_assign_i(tc, value, (MVMint64)*(DCuchar *)free_rws[num_rws]);
+                        MVM_6model_container_assign_u(tc, value, (MVMint64)*(DCuchar *)free_rws[num_rws]);
                         break;
                     case MVM_NATIVECALL_ARG_USHORT:
-                        MVM_6model_container_assign_i(tc, value, (MVMint64)*(DCushort *)free_rws[num_rws]);
+                        MVM_6model_container_assign_u(tc, value, (MVMint64)*(DCushort *)free_rws[num_rws]);
                         break;
                     case MVM_NATIVECALL_ARG_UINT:
-                        MVM_6model_container_assign_i(tc, value, (MVMint64)*(DCuint *)free_rws[num_rws]);
+                        MVM_6model_container_assign_u(tc, value, (MVMint64)*(DCuint *)free_rws[num_rws]);
                         break;
                     case MVM_NATIVECALL_ARG_ULONG:
-                        MVM_6model_container_assign_i(tc, value, (MVMint64)*(DCulong *)free_rws[num_rws]);
+                        MVM_6model_container_assign_u(tc, value, (MVMint64)*(DCulong *)free_rws[num_rws]);
                         break;
                     case MVM_NATIVECALL_ARG_ULONGLONG:
-                        MVM_6model_container_assign_i(tc, value, (MVMint64)*(DCulonglong *)free_rws[num_rws]);
+                        MVM_6model_container_assign_u(tc, value, (MVMint64)*(DCulonglong *)free_rws[num_rws]);
                         break;
                     case MVM_NATIVECALL_ARG_CPOINTER:
                         REPR(value)->box_funcs.set_int(tc, STABLE(value), value, OBJECT_BODY(value),
@@ -995,19 +998,19 @@ void MVM_nativecall_dispatch(MVMThreadContext *tc, MVMObject *res_type,
                     break;
                 }
                 case MVM_NATIVECALL_ARG_UCHAR:
-                    handle_arg("integer", cont_i, DCuchar, i64, dcArgChar, MVM_nativecall_unmarshal_uchar);
+                    handle_arg("integer", cont_u, DCuchar, u64, dcArgChar, MVM_nativecall_unmarshal_uchar);
                     break;
                 case MVM_NATIVECALL_ARG_USHORT:
-                    handle_arg("integer", cont_i, DCushort, i64, dcArgShort, MVM_nativecall_unmarshal_ushort);
+                    handle_arg("integer", cont_u, DCushort, u64, dcArgShort, MVM_nativecall_unmarshal_ushort);
                     break;
                 case MVM_NATIVECALL_ARG_UINT:
-                    handle_arg("integer", cont_i, DCuint, i64, dcArgInt, MVM_nativecall_unmarshal_uint);
+                    handle_arg("integer", cont_u, DCuint, u64, dcArgInt, MVM_nativecall_unmarshal_uint);
                     break;
                 case MVM_NATIVECALL_ARG_ULONG:
-                    handle_arg("integer", cont_i, DCulong, i64, dcArgLong, MVM_nativecall_unmarshal_ulong);
+                    handle_arg("integer", cont_u, DCulong, u64, dcArgLong, MVM_nativecall_unmarshal_ulong);
                     break;
                 case MVM_NATIVECALL_ARG_ULONGLONG:
-                    handle_arg("integer", cont_i, DCulonglong, i64, dcArgLongLong, MVM_nativecall_unmarshal_ulonglong);
+                    handle_arg("integer", cont_u, DCulonglong, u64, dcArgLongLong, MVM_nativecall_unmarshal_ulonglong);
                     break;
                 default:
                     MVM_telemetry_interval_stop(tc, interval_id, "nativecall invoke failed");
@@ -1016,7 +1019,7 @@ void MVM_nativecall_dispatch(MVMThreadContext *tc, MVMObject *res_type,
                         arg_types[i] & MVM_NATIVECALL_ARG_TYPE_MASK, i);
             }
         }
-        else if (args.callsite->arg_flags[i + 1] & MVM_CALLSITE_ARG_INT) {
+        else if (args.callsite->arg_flags[i + 1] & (MVM_CALLSITE_ARG_INT | MVM_CALLSITE_ARG_UINT)) {
             if ((arg_types[i] & MVM_NATIVECALL_ARG_RW_MASK) == MVM_NATIVECALL_ARG_RW) {
                 dcArgPointer(vm, &args.source[args.map[i + 1]].i64);
             }
@@ -1083,18 +1086,9 @@ void MVM_nativecall_dispatch(MVMThreadContext *tc, MVMObject *res_type,
                 case MVM_NATIVECALL_ARG_UTF8STR:
                 case MVM_NATIVECALL_ARG_UTF16STR:
                     {
-                        char *str;
-                        switch (arg_types[i] & MVM_NATIVECALL_ARG_TYPE_MASK) {
-                            case MVM_NATIVECALL_ARG_ASCIISTR:
-                                str = MVM_string_ascii_encode_any(tc, value);
-                                break;
-                            case MVM_NATIVECALL_ARG_UTF16STR:
-                                str = MVM_string_utf16_encode(tc, value, 0);
-                                break;
-                            default:
-                                str = MVM_string_utf8_encode_C_string(tc, value);
-                        }
-                        if (arg_types[i] & MVM_NATIVECALL_ARG_FREE_STR_MASK) {
+                        MVMint16 free = 0;
+                        char *str = MVM_nativecall_encode_string(tc, value, arg_types[i], &free, i, REPR(value));
+                        if (free) {
                             if (!free_strs)
                                 free_strs = (char**)alloca(num_args * sizeof(char *));
                             free_strs[num_strs] = str;
@@ -1217,6 +1211,10 @@ void MVM_nativecall_dispatch(MVMThreadContext *tc, MVMObject *res_type,
                         update_rws(tc, free_rws, num_args, arg_types, args, interval_id);
                         MVM_args_set_dispatch_result_int(tc, tc->cur_frame, (MVMuint64)native_result);
                     }
+                    else if (tc->cur_frame->return_type == MVM_RETURN_UINT) {
+                        update_rws(tc, free_rws, num_args, arg_types, args, interval_id);
+                        MVM_args_set_dispatch_result_uint(tc, tc->cur_frame, (MVMuint64)native_result);
+                    }
                     else {
                         result = MVM_nativecall_make_cpointer(tc, res_type, native_result);
                         update_rws(tc, free_rws, num_args, arg_types, args, interval_id);
@@ -1254,35 +1252,35 @@ void MVM_nativecall_dispatch(MVMThreadContext *tc, MVMObject *res_type,
                     MVMuint64 native_result = (DCuchar)dcCallChar(vm, entry_point);
                     MVM_gc_mark_thread_unblocked(tc);
                     update_rws(tc, free_rws, num_args, arg_types, args, interval_id);
-                    MVM_args_set_dispatch_result_int(tc, tc->cur_frame, native_result);
+                    MVM_args_set_dispatch_result_uint(tc, tc->cur_frame, native_result);
                     break;
                 }
                 case MVM_NATIVECALL_ARG_USHORT: {
                     MVMuint64 native_result = (DCushort)dcCallShort(vm, entry_point);
                     MVM_gc_mark_thread_unblocked(tc);
                     update_rws(tc, free_rws, num_args, arg_types, args, interval_id);
-                    MVM_args_set_dispatch_result_int(tc, tc->cur_frame, native_result);
+                    MVM_args_set_dispatch_result_uint(tc, tc->cur_frame, native_result);
                     break;
                 }
                 case MVM_NATIVECALL_ARG_UINT: {
                     MVMuint64 native_result = (DCuint)dcCallInt(vm, entry_point);
                     MVM_gc_mark_thread_unblocked(tc);
                     update_rws(tc, free_rws, num_args, arg_types, args, interval_id);
-                    MVM_args_set_dispatch_result_int(tc, tc->cur_frame, native_result);
+                    MVM_args_set_dispatch_result_uint(tc, tc->cur_frame, native_result);
                     break;
                 }
                 case MVM_NATIVECALL_ARG_ULONG: {
                     MVMuint64 native_result = (DCulong)dcCallLong(vm, entry_point);
                     MVM_gc_mark_thread_unblocked(tc);
                     update_rws(tc, free_rws, num_args, arg_types, args, interval_id);
-                    MVM_args_set_dispatch_result_int(tc, tc->cur_frame, native_result);
+                    MVM_args_set_dispatch_result_uint(tc, tc->cur_frame, native_result);
                     break;
                 }
                 case MVM_NATIVECALL_ARG_ULONGLONG: {
                     MVMuint64 native_result = (DCulonglong)dcCallLongLong(vm, entry_point);
                     MVM_gc_mark_thread_unblocked(tc);
                     update_rws(tc, free_rws, num_args, arg_types, args, interval_id);
-                    MVM_args_set_dispatch_result_int(tc, tc->cur_frame, native_result);
+                    MVM_args_set_dispatch_result_uint(tc, tc->cur_frame, native_result);
                     break;
                 }
                 default:
@@ -1298,7 +1296,11 @@ void MVM_nativecall_dispatch(MVMThreadContext *tc, MVMObject *res_type,
     /* Free any memory that we need to. */
     if (free_strs)
         for (i = 0; i < num_strs; i++)
+#ifdef MVM_USE_MIMALLOC
+            free(free_strs[i]);
+#else
             MVM_free(free_strs[i]);
+#endif
 
     /* Finally, free call VM. */
     dcFree(vm);

@@ -525,10 +525,10 @@ read_dir            w(str) r(obj)
 close_dir           r(obj)
 open_fh             w(obj) r(str) r(str)
 close_fh            r(obj)
-DEPRECATED_23       w(obj) r(str) r(str)
+dispatch_u       .d w(uint64) str callsite :cache :deoptallpoint :predeoptonepoint :maycausedeopt :specializable
 DEPRECATED_27       w(str) r(str) r(str)
 DEPRECATED_28       r(str) r(str) r(str)
-DEPRECATED_18       w(int64) r(obj) r(str)
+atposnd_u           w(uint64) r(obj) r(obj) :pure :specializable
 seek_fh             r(obj) r(int64) r(int64)
 lock_fh             w(int64) r(obj) r(int64)
 unlock_fh           r(obj)
@@ -541,14 +541,14 @@ getstderr           w(obj) :pure
 connect_sk          r(obj) r(str) r(int64) r(uint16)
 socket              w(obj) r(int64)
 bind_sk             r(obj) r(str) r(int64) r(uint16) r(int64)
-DEPRECATED_24       r(obj) r(str)
+coerce_su           w(uint64) r(str) :pure :confprog
 accept_sk           w(obj) r(obj)
 decodetocodes       r(obj) r(str) r(int64) r(obj)
 encodefromcodes     r(obj) r(str) r(obj)
-DEPRECATED_17       r(obj) r(str)
+multidimref_u       w(obj) r(obj) r(obj) :pure :useshll
 print               r(str)
 say                 r(str) :confprog
-DEPRECATED_22       w(str) r(obj)
+return_u         .r r(uint64) :useshll
 tell_fh             w(int64) r(obj)
 stat                w(int64) r(str) r(int64)
 DEPRECATED_79       w(obj) r(obj) str
@@ -590,7 +590,7 @@ DEPRECATED_29       w(int64) r(obj) r(str) r(obj) r(obj) r(obj) r(obj) r(int64)
 filereadable        w(int64) r(str)
 filewritable        w(int64) r(str)
 fileexecutable      w(int64) r(str)
-DEPRECATED_19       w(int64) r(obj) r(str)
+atpos2d_u           w(uint64) r(obj) r(int64) r(int64) :pure :specializable
 capturenamedshash   w(obj) r(obj) :pure :useshll
 read_fhb            r(obj) r(obj) r(int64)
 write_fhb           r(obj) r(obj)
@@ -643,9 +643,9 @@ signal              w(obj) r(obj) r(obj) r(obj) r(obj) r(int64) r(obj)
 watchfile           w(obj) r(obj) r(obj) r(str) r(obj)
 asyncconnect        w(obj) r(obj) r(obj) r(str) r(int64) r(obj)
 asynclisten         w(obj) r(obj) r(obj) r(str) r(int64) r(int64) r(obj)
-DEPRECATED_14       w(obj) r(obj) r(obj) r(obj) r(str) r(obj)
+bindposnd_u         r(obj) r(obj) r(uint64) :specializable
 asyncwritebytes     w(obj) r(obj) r(obj) r(obj) r(obj) r(obj)
-DEPRECATED_16       w(obj) r(obj) r(obj) r(obj) r(obj)
+bindpos3d_u         r(obj) r(int64) r(int64) r(int64) r(uint64) :specializable
 asyncreadbytes      w(obj) r(obj) r(obj) r(obj) r(obj) r(obj)
 getlexstatic_o      w(obj) r(str) :pure :noinline :specializable :cache
 getlexperinvtype_o  w(obj) r(str) :pure :logged :specializable
@@ -748,7 +748,7 @@ ctxcode             w(obj) r(obj)
 isrwcont            w(int64) r(obj) :pure :specializable
 fc                  w(str) r(str) :pure
 DEPRECATED_25       r(obj) r(obj)
-DEPRECATED_21       w(str) r(obj)
+atpos3d_u           w(uint64) r(obj) r(int64) r(int64) r(int64) :pure :specializable
 encoderep           w(obj) r(str) r(str) r(str) r(obj)
 istty_fh            w(int64) r(obj) :pure
 multidimref_i       w(obj) r(obj) r(obj) :pure :useshll
@@ -756,14 +756,14 @@ multidimref_n       w(obj) r(obj) r(obj) :pure :useshll
 multidimref_s       w(obj) r(obj) r(obj) :pure :useshll
 fileno_fh           w(int64) r(obj) :pure
 asyncudp            w(obj) r(obj) r(obj) r(str) r(int64) r(int64) r(obj)
-DEPRECATED_15       w(obj) r(obj) r(obj) r(obj) r(str) r(obj) r(str) r(int64)
+bindpos2d_u         r(obj) r(int64) r(int64) r(uint64) :specializable
 asyncwritebytesto   w(obj) r(obj) r(obj) r(obj) r(obj) r(obj) r(str) r(int64)
 objprimbits         w(int64) r(obj) :specializable
 objprimunsigned     w(int64) r(obj) :specializable
 ctxnt               w(obj) :pure :noinline
 DEPRECATED_6        w(obj) r(int16)
-DEPRECATED_7        w(obj) r(int8)
-DEPRECATED_8        w(obj) r(num32)
+bindattr_u          r(obj) r(obj) str r(uint64) int16 :specializable
+bindattrs_u         r(obj) r(obj) r(str) r(uint64) :specializable
 getlexref_i32       w(obj) rl(int32) :pure :noinline :useshll
 getlexref_i16       w(obj) rl(int16) :pure :noinline :useshll
 getlexref_i8        w(obj) rl(int8) :pure :noinline :useshll
@@ -775,10 +775,10 @@ coerce_ui           w(int64) r(uint64) :pure
 coerce_nu           w(uint64) r(num64) :pure
 coerce_un           w(num64) r(uint64) :pure
 decont_u            w(uint64) r(obj) :pure :invokish :maycausedeopt :specializable
-DEPRECATED_9        w(obj) r(uint64)
-DEPRECATED_10       w(obj) r(uint32)
-DEPRECATED_11       w(obj) r(uint16)
-DEPRECATED_12       w(obj) r(uint8)
+bnot_u              w(uint64) r(uint64) :pure :confprog
+getattr_u           w(uint64) r(obj) r(obj) str int16 :specializable
+getattrs_u          w(uint64) r(obj) r(obj) r(str) :specializable
+getattrref_u        w(obj) r(obj) r(obj) str int16 :pure :useshll
 getlexref_u         w(obj) rl(uint64) :pure :noinline :useshll
 getlexref_u32       w(obj) rl(uint32) :pure :noinline :useshll
 getlexref_u16       w(obj) rl(uint16) :pure :noinline :useshll
@@ -959,6 +959,7 @@ sp_istype           .s w(int64) r(obj) r(obj) sslot uint32 :pure :invokish :mayc
 # anything more optimal. These precalculate the inline cache slot.
 sp_dispatch_v    .s str callsite sslot uint32 :maycausedeopt :invokish
 sp_dispatch_i    .s w(int64) str callsite sslot uint32 :maycausedeopt :invokish
+sp_dispatch_u    .s w(uint64) str callsite sslot uint32 :maycausedeopt :invokish
 sp_dispatch_n    .s w(num64) str callsite sslot uint32 :maycausedeopt :invokish
 sp_dispatch_s    .s w(str) str callsite sslot uint32 :maycausedeopt :invokish
 sp_dispatch_o    .s w(obj) str callsite sslot uint32 :maycausedeopt :invokish
@@ -1083,6 +1084,7 @@ sp_bool_I        .s w(int64) r(obj) int16 :pure
 # preselected, or -1 if none wsa.
 sp_runbytecode_v .s r(obj) uint64 int16 :maycausedeopt :invokish
 sp_runbytecode_i .s w(int64) r(obj) uint64 int16 :maycausedeopt :invokish
+sp_runbytecode_u .s w(uint64) r(obj) uint64 int16 :maycausedeopt :invokish
 sp_runbytecode_n .s w(num64) r(obj) uint64 int16 :maycausedeopt :invokish
 sp_runbytecode_s .s w(str) r(obj) uint64 int16 :maycausedeopt :invokish
 sp_runbytecode_o .s w(obj) r(obj) uint64 int16 :maycausedeopt :invokish
@@ -1092,6 +1094,7 @@ sp_runbytecode_o .s w(obj) r(obj) uint64 int16 :maycausedeopt :invokish
 # they are interned).
 sp_runcfunc_v    .s r(obj) uint64
 sp_runcfunc_i    .s w(int64) r(obj) uint64
+sp_runcfunc_u    .s w(uint64) r(obj) uint64
 sp_runcfunc_n    .s w(num64) r(obj) uint64
 sp_runcfunc_s    .s w(str) r(obj) uint64
 sp_runcfunc_o    .s w(obj) r(obj) uint64
@@ -1103,6 +1106,7 @@ sp_runcfunc_o    .s w(obj) r(obj) uint64
 # several places though.
 sp_runnativecall_v .s          r(obj) uint64 :maycausedeopt :invokish
 sp_runnativecall_i .s w(int64) r(obj) uint64 :maycausedeopt :invokish
+sp_runnativecall_u .s w(uint64) r(obj) uint64 :maycausedeopt :invokish
 sp_runnativecall_n .s w(num64) r(obj) uint64 :maycausedeopt :invokish
 sp_runnativecall_s .s w(str)   r(obj) uint64 :maycausedeopt :invokish
 sp_runnativecall_o .s w(obj)   r(obj) uint64 :maycausedeopt :invokish

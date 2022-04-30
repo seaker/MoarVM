@@ -906,6 +906,9 @@ MVMuint64 MVM_frame_try_return(MVMThreadContext *tc) {
                     case MVM_RETURN_INT:
                         result = MVM_repr_box_int(tc, hll->int_box_type, caller->return_value->i64);
                         break;
+                    case MVM_RETURN_UINT:
+                        result = MVM_repr_box_uint(tc, hll->int_box_type, caller->return_value->u64);
+                        break;
                     case MVM_RETURN_NUM:
                         result = MVM_repr_box_num(tc, hll->num_box_type, caller->return_value->n64);
                         break;
@@ -1114,7 +1117,7 @@ void MVM_frame_capturelex(MVMThreadContext *tc, MVMObject *code) {
  * having taken place. At the point we closure-clone the whenever block, we
  * will capture_inner the QUIT phaser. This creates a fake outer for the
  * QUIT, but makes *its* outer point to the nearest instance of the relevant
- * static frame on the call stack, so that the QUIT will disocver the correct
+ * static frame on the call stack, so that the QUIT will discover the correct
  * $x.
  */
 void MVM_frame_capture_inner(MVMThreadContext *tc, MVMObject *code) {

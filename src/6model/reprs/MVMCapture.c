@@ -178,6 +178,8 @@ static MVMint64 flag_to_spec(MVMint64 flag) {
     switch (flag & MVM_CALLSITE_ARG_TYPE_MASK) {
         case MVM_CALLSITE_ARG_INT:
             return MVM_STORAGE_SPEC_BP_INT;
+        case MVM_CALLSITE_ARG_UINT:
+            return MVM_STORAGE_SPEC_BP_UINT64;
         case MVM_CALLSITE_ARG_NUM:
             return MVM_STORAGE_SPEC_BP_NUM;
         case MVM_CALLSITE_ARG_STR:
@@ -207,7 +209,8 @@ MVMObject * MVM_capture_arg_pos_o(MVMThreadContext *tc, MVMObject *capture_obj, 
     if (idx >= capture->body.callsite->num_pos)
         MVM_exception_throw_adhoc(tc, "Capture argument index (%u) out of range (0..^%u) for captureposarg", idx, capture->body.callsite->num_pos);
     if ((capture->body.callsite->arg_flags[idx] & MVM_CALLSITE_ARG_TYPE_MASK) != MVM_CALLSITE_ARG_OBJ)
-        MVM_exception_throw_adhoc(tc, "Capture argument is not an object argument for captureposarg");
+        MVM_exception_throw_adhoc(tc, "Capture argument is not an object argument for captureposarg. Got %d instead",
+            (capture->body.callsite->arg_flags[idx] & MVM_CALLSITE_ARG_TYPE_MASK));
     return capture->body.args[idx].o;
 }
 
@@ -236,7 +239,7 @@ MVMint64 MVM_capture_arg_pos_i(MVMThreadContext *tc, MVMObject *capture_obj, MVM
     MVMCapture *capture = validate_capture(tc, capture_obj);
     if (idx >= capture->body.callsite->num_pos)
         MVM_exception_throw_adhoc(tc, "Capture argument index (%u) out of range (0..^%u) for captureposarg_i", idx, capture->body.callsite->num_pos);
-    if ((capture->body.callsite->arg_flags[idx] & MVM_CALLSITE_ARG_TYPE_MASK) != MVM_CALLSITE_ARG_INT)
+    if (!(capture->body.callsite->arg_flags[idx] & (MVM_CALLSITE_ARG_INT | MVM_CALLSITE_ARG_UINT)))
         MVM_exception_throw_adhoc(tc, "Capture argument is not an integer argument for captureposarg_i");
     return capture->body.args[idx].i64;
 }
@@ -462,7 +465,10 @@ MVMObject * MVM_capture_replace_arg(MVMThreadContext *tc, MVMObject *capture_obj
      * The callsite MUST be created after we allocated as it may contain named
      * arguments, i.e. contain pointers to strings which wouldn't get marked. */
     MVMCallsite *callsite = capture->body.callsite;
-    MVMCallsite *new_callsite = MVM_callsite_replace_positional(tc, capture->body.callsite, idx, kind);
+    if ((callsite->arg_flags[idx] & MVM_CALLSITE_ARG_TYPE_MASK) != kind)
+        MVM_exception_throw_adhoc(tc, "Cannot replace capture argument with different kind %d -> %d", callsite->arg_flags[idx], kind);
+
+    MVMCallsite *new_callsite = MVM_callsite_replace_positional(tc, callsite, idx, kind);
     new_callsite->arg_flags[idx] = kind;
 
     /* Form a new arguments buffer, replacing the specified argument. */

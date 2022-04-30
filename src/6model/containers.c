@@ -36,7 +36,7 @@ static void code_pair_fetch_i(MVMThreadContext *tc, MVMObject *cont, MVMRegister
 }
 
 static void code_pair_fetch_u(MVMThreadContext *tc, MVMObject *cont, MVMRegister *res) {
-    code_pair_fetch_internal(tc, cont, res, MVM_RETURN_INT);
+    code_pair_fetch_internal(tc, cont, res, MVM_RETURN_UINT);
 }
 
 static void code_pair_fetch_n(MVMThreadContext *tc, MVMObject *cont, MVMRegister *res) {
@@ -126,8 +126,8 @@ static const MVMContainerSpec code_pair_spec = {
     NULL,
     code_pair_can_store,
     NULL, /* cas */
-    NULL, /* atomic_load */
-    NULL, /* atomic_store */
+    NULL, /* load_atomic */
+    NULL, /* store_atomic */
     0
 };
 
@@ -184,7 +184,7 @@ typedef struct {
     MVMCode *store;
     MVMCode *store_unchecked;
     MVMCode *cas;
-    MVMCode *atomic_store;
+    MVMCode *store_atomic;
 
     /* Retained for serialization purposes only. */
     MVMObject *attrs_class;
@@ -277,7 +277,7 @@ static void value_desc_cont_gc_mark_data(MVMThreadContext *tc, MVMSTable *st, MV
     MVM_gc_worklist_add(tc, worklist, &data->store);
     MVM_gc_worklist_add(tc, worklist, &data->store_unchecked);
     MVM_gc_worklist_add(tc, worklist, &data->cas);
-    MVM_gc_worklist_add(tc, worklist, &data->atomic_store);
+    MVM_gc_worklist_add(tc, worklist, &data->store_atomic);
     MVM_gc_worklist_add(tc, worklist, &data->attrs_class);
     MVM_gc_worklist_add(tc, worklist, &data->value_attr);
     MVM_gc_worklist_add(tc, worklist, &data->descriptor_attr);
@@ -292,7 +292,7 @@ static void value_desc_cont_serialize(MVMThreadContext *tc, MVMSTable *st, MVMSe
     MVM_serialization_write_ref(tc, writer, (MVMObject *)data->store);
     MVM_serialization_write_ref(tc, writer, (MVMObject *)data->store_unchecked);
     MVM_serialization_write_ref(tc, writer, (MVMObject *)data->cas);
-    MVM_serialization_write_ref(tc, writer, (MVMObject *)data->atomic_store);
+    MVM_serialization_write_ref(tc, writer, (MVMObject *)data->store_atomic);
     MVM_serialization_write_ref(tc, writer, data->attrs_class);
     MVM_serialization_write_str(tc, writer, data->value_attr);
     MVM_serialization_write_str(tc, writer, data->descriptor_attr);
@@ -303,7 +303,7 @@ static void value_desc_cont_deserialize(MVMThreadContext *tc, MVMSTable *st, MVM
     MVM_ASSIGN_REF(tc, &(st->header), data->store, MVM_serialization_read_ref(tc, reader));
     MVM_ASSIGN_REF(tc, &(st->header), data->store_unchecked, MVM_serialization_read_ref(tc, reader));
     MVM_ASSIGN_REF(tc, &(st->header), data->cas, MVM_serialization_read_ref(tc, reader));
-    MVM_ASSIGN_REF(tc, &(st->header), data->atomic_store, MVM_serialization_read_ref(tc, reader));
+    MVM_ASSIGN_REF(tc, &(st->header), data->store_atomic, MVM_serialization_read_ref(tc, reader));
     MVM_ASSIGN_REF(tc, &(st->header), data->attrs_class, MVM_serialization_read_ref(tc, reader));
     MVM_ASSIGN_REF(tc, &(st->header), data->value_attr, MVM_serialization_read_str(tc, reader));
     MVM_ASSIGN_REF(tc, &(st->header), data->descriptor_attr, MVM_serialization_read_str(tc, reader));
@@ -353,13 +353,13 @@ static MVMObject * value_desc_cont_atomic_load(MVMThreadContext *tc, MVMObject *
     return value ? value : tc->instance->VMNull;
 }
 
-void value_desc_cont_atomic_store(MVMThreadContext *tc, MVMObject *cont, MVMObject *value) {
+static void value_desc_cont_atomic_store(MVMThreadContext *tc, MVMObject *cont, MVMObject *value) {
     MVMValueDescContainer *data = (MVMValueDescContainer *)STABLE(cont)->container_data;
     MVMCallStackArgsFromC *args_record = MVM_callstack_allocate_args_from_c(tc,
             MVM_callsite_get_common(tc, MVM_CALLSITE_ID_OBJ_OBJ));
     args_record->args.source[0].o = cont;
     args_record->args.source[1].o = value;
-    MVM_frame_dispatch_from_c(tc, data->atomic_store, args_record, NULL, MVM_RETURN_VOID);
+    MVM_frame_dispatch_from_c(tc, data->store_atomic, args_record, NULL, MVM_RETURN_VOID);
 }
 
 static const MVMContainerSpec value_desc_cont_spec = {
@@ -424,7 +424,7 @@ static void value_desc_cont_configure_container_spec(MVMThreadContext *tc, MVMST
         value = grab_one_value(tc, config, "atomic_store");
         if (!MVM_code_iscode(tc, value))
             MVM_exception_throw_adhoc(tc, "Container spec must be configured with a code handle");
-        MVM_ASSIGN_REF(tc, &(st->header), data->atomic_store, value);
+        MVM_ASSIGN_REF(tc, &(st->header), data->store_atomic, value);
         value = grab_one_value(tc, config, "attrs_class");
         MVM_ASSIGN_REF(tc, &(st->header), data->attrs_class, value);
         value = grab_one_value(tc, config, "value_attr");
@@ -469,20 +469,20 @@ static void native_ref_fetch_i(MVMThreadContext *tc, MVMObject *cont, MVMRegiste
 
 static void native_ref_fetch_u(MVMThreadContext *tc, MVMObject *cont, MVMRegister *res) {
     MVMNativeRefREPRData *repr_data = (MVMNativeRefREPRData *)STABLE(cont)->REPR_data;
-    if (repr_data->primitive_type != MVM_STORAGE_SPEC_BP_INT)
-        MVM_exception_throw_adhoc(tc, "This container does not reference a native integer");
+    if (repr_data->primitive_type != MVM_STORAGE_SPEC_BP_UINT64)
+        MVM_exception_throw_adhoc(tc, "This container does not reference a native unsigned integer");
     switch (repr_data->ref_kind) {
         case MVM_NATIVEREF_LEX:
             res->u64 = MVM_nativeref_read_lex_i(tc, cont); /* covers unsigned as well */
             break;
         case MVM_NATIVEREF_ATTRIBUTE:
-            res->u64 = MVM_nativeref_read_attribute_i(tc, cont); /* FIXME needs get_attr_u */
+            res->u64 = MVM_nativeref_read_attribute_u(tc, cont);
             break;
         case MVM_NATIVEREF_POSITIONAL:
             res->u64 = MVM_nativeref_read_positional_u(tc, cont);
             break;
         case MVM_NATIVEREF_MULTIDIM:
-            res->u64 = MVM_nativeref_read_multidim_i(tc, cont); /* FIXME needs at_pos_multidim_u */
+            res->u64 = MVM_nativeref_read_multidim_u(tc, cont);
             break;
         default:
             MVM_exception_throw_adhoc(tc, "Unknown native int reference kind");
@@ -541,6 +541,7 @@ static void native_ref_fetch(MVMThreadContext *tc, MVMObject *cont, MVMRegister 
         hll = MVM_hll_current(tc);
     switch (repr_data->primitive_type) {
         case MVM_STORAGE_SPEC_BP_INT:
+        case MVM_STORAGE_SPEC_BP_UINT64:
             if (repr_data->is_unsigned) {
                 native_ref_fetch_u(tc, cont, &tmp);
                 res->o = MVM_repr_box_uint(tc, hll->int_box_type, tmp.u64);
@@ -587,20 +588,20 @@ static void native_ref_store_i(MVMThreadContext *tc, MVMObject *cont, MVMint64 v
 
 static void native_ref_store_u(MVMThreadContext *tc, MVMObject *cont, MVMuint64 value) {
     MVMNativeRefREPRData *repr_data = (MVMNativeRefREPRData *)STABLE(cont)->REPR_data;
-    if (repr_data->primitive_type != MVM_STORAGE_SPEC_BP_INT)
+    if (repr_data->primitive_type != MVM_STORAGE_SPEC_BP_UINT64)
         MVM_exception_throw_adhoc(tc, "This container does not reference a native integer");
     switch (repr_data->ref_kind) {
         case MVM_NATIVEREF_LEX:
-            MVM_nativeref_write_lex_i(tc, cont, value); /* FIXME need a MVM_nativeref_write_lex_u */
+            MVM_nativeref_write_lex_u(tc, cont, value);
             break;
         case MVM_NATIVEREF_ATTRIBUTE:
-            MVM_nativeref_write_attribute_i(tc, cont, value); /* FIXME need a MVM_nativeref_write_attribute_u */
+            MVM_nativeref_write_attribute_u(tc, cont, value);
             break;
         case MVM_NATIVEREF_POSITIONAL:
             MVM_nativeref_write_positional_u(tc, cont, value);
             break;
         case MVM_NATIVEREF_MULTIDIM:
-            MVM_nativeref_write_multidim_i(tc, cont, value); /* FIXME need a MVM_nativeref_write_multidim_u */
+            MVM_nativeref_write_multidim_u(tc, cont, value);
             break;
         default:
             MVM_exception_throw_adhoc(tc, "Unknown native int reference kind");
@@ -654,6 +655,7 @@ static void native_ref_store_s(MVMThreadContext *tc, MVMObject *cont, MVMString 
 static void native_ref_store(MVMThreadContext *tc, MVMObject *cont, MVMObject *obj) {
     MVMNativeRefREPRData *repr_data = (MVMNativeRefREPRData *)STABLE(cont)->REPR_data;
     switch (repr_data->primitive_type) {
+        case MVM_STORAGE_SPEC_BP_UINT64:
         case MVM_STORAGE_SPEC_BP_INT:
             if (repr_data->is_unsigned)
                 native_ref_store_u(tc, cont, MVM_repr_get_uint(tc, obj));
@@ -704,8 +706,8 @@ static const MVMContainerSpec native_ref_spec = {
     NULL,
     native_ref_can_store,
     NULL, /* cas */
-    NULL, /* atomic_load */
-    NULL, /* atomic_store */
+    NULL, /* load_atomic */
+    NULL, /* store_atomic */
     1
 };
 
@@ -718,14 +720,13 @@ static void native_ref_configure_container_spec(MVMThreadContext *tc, MVMSTable 
 }
 
 void *MVM_container_devirtualize_fetch_for_jit(MVMThreadContext *tc, MVMSTable *st, MVMuint16 type) {
-    if (type != MVM_reg_int64)
-        return NULL;
     if (st->container_spec == &native_ref_spec) {
         MVMNativeRefREPRData *repr_data = (MVMNativeRefREPRData *)st->REPR_data;
         switch (repr_data->ref_kind) {
             case MVM_NATIVEREF_LEX:
                 switch (type) {
                     case MVM_reg_int64: return MVM_nativeref_read_lex_i;
+                    case MVM_reg_uint64: return MVM_nativeref_read_lex_i;
                     case MVM_reg_num64: return MVM_nativeref_read_lex_n;
                     case MVM_reg_str:   return MVM_nativeref_read_lex_s;
                 }
@@ -733,6 +734,7 @@ void *MVM_container_devirtualize_fetch_for_jit(MVMThreadContext *tc, MVMSTable *
             case MVM_NATIVEREF_ATTRIBUTE:
                 switch (type) {
                     case MVM_reg_int64: return MVM_nativeref_read_attribute_i;
+                    case MVM_reg_uint64: return MVM_nativeref_read_attribute_u;
                     case MVM_reg_num64: return MVM_nativeref_read_attribute_n;
                     case MVM_reg_str:   return MVM_nativeref_read_attribute_s;
                 }
@@ -740,6 +742,7 @@ void *MVM_container_devirtualize_fetch_for_jit(MVMThreadContext *tc, MVMSTable *
             case MVM_NATIVEREF_POSITIONAL:
                 switch (type) {
                     case MVM_reg_int64: return MVM_nativeref_read_positional_i;
+                    case MVM_reg_uint64: return MVM_nativeref_read_positional_u;
                     case MVM_reg_num64: return MVM_nativeref_read_positional_n;
                     case MVM_reg_str:   return MVM_nativeref_read_positional_s;
                 }
@@ -747,6 +750,7 @@ void *MVM_container_devirtualize_fetch_for_jit(MVMThreadContext *tc, MVMSTable *
             case MVM_NATIVEREF_MULTIDIM:
                 switch (type) {
                     case MVM_reg_int64: return MVM_nativeref_read_multidim_i;
+                    case MVM_reg_uint64: return MVM_nativeref_read_multidim_u;
                     case MVM_reg_num64: return MVM_nativeref_read_multidim_n;
                     case MVM_reg_str:   return MVM_nativeref_read_multidim_s;
                 }
@@ -759,14 +763,13 @@ void *MVM_container_devirtualize_fetch_for_jit(MVMThreadContext *tc, MVMSTable *
 }
 
 void *MVM_container_devirtualize_store_for_jit(MVMThreadContext *tc, MVMSTable *st, MVMuint16 type) {
-    if (type != MVM_reg_int64)
-        return NULL;
     if (st->container_spec == &native_ref_spec) {
         MVMNativeRefREPRData *repr_data = (MVMNativeRefREPRData *)st->REPR_data;
         switch (repr_data->ref_kind) {
             case MVM_NATIVEREF_LEX:
                 switch (type) {
                     case MVM_reg_int64: return MVM_nativeref_write_lex_i;
+                    case MVM_reg_uint64: return MVM_nativeref_write_lex_u;
                     case MVM_reg_num64: return MVM_nativeref_write_lex_n;
                     case MVM_reg_str:   return MVM_nativeref_write_lex_s;
                 }
@@ -774,6 +777,7 @@ void *MVM_container_devirtualize_store_for_jit(MVMThreadContext *tc, MVMSTable *
             case MVM_NATIVEREF_ATTRIBUTE:
                 switch (type) {
                     case MVM_reg_int64: return MVM_nativeref_write_attribute_i;
+                    case MVM_reg_uint64: return MVM_nativeref_write_attribute_u;
                     case MVM_reg_num64: return MVM_nativeref_write_attribute_n;
                     case MVM_reg_str:   return MVM_nativeref_write_attribute_s;
                 }
@@ -781,6 +785,7 @@ void *MVM_container_devirtualize_store_for_jit(MVMThreadContext *tc, MVMSTable *
             case MVM_NATIVEREF_POSITIONAL:
                 switch (type) {
                     case MVM_reg_int64: return MVM_nativeref_write_positional_i;
+                    case MVM_reg_uint64: return MVM_nativeref_write_positional_u;
                     case MVM_reg_num64: return MVM_nativeref_write_positional_n;
                     case MVM_reg_str:   return MVM_nativeref_write_positional_s;
                 }
@@ -788,6 +793,7 @@ void *MVM_container_devirtualize_store_for_jit(MVMThreadContext *tc, MVMSTable *
             case MVM_NATIVEREF_MULTIDIM:
                 switch (type) {
                     case MVM_reg_int64: return MVM_nativeref_write_multidim_i;
+                    case MVM_reg_uint64: return MVM_nativeref_write_multidim_u;
                     case MVM_reg_num64: return MVM_nativeref_write_multidim_n;
                     case MVM_reg_str:   return MVM_nativeref_write_multidim_s;
                 }
@@ -989,8 +995,8 @@ MVMObject * MVM_6model_container_atomic_load(MVMThreadContext *tc, MVMObject *co
     if (IS_CONCRETE(cont)) {
         MVMContainerSpec const *cs = cont->st->container_spec;
         if (cs) {
-            if (cs->atomic_load)
-                return cs->atomic_load(tc, cont);
+            if (cs->load_atomic)
+                return cs->load_atomic(tc, cont);
             else
                 MVM_exception_throw_adhoc(tc,
                     "A %s container does not know how to do an atomic load",
@@ -1013,8 +1019,8 @@ void MVM_6model_container_atomic_store(MVMThreadContext *tc, MVMObject *cont, MV
     if (IS_CONCRETE(cont)) {
         MVMContainerSpec const *cs = cont->st->container_spec;
         if (cs) {
-            if (cs->atomic_store)
-                cs->atomic_store(tc, cont, value);
+            if (cs->store_atomic)
+                cs->store_atomic(tc, cont, value);
             else
                 MVM_exception_throw_adhoc(tc,
                     "A %s container does not know how to do an atomic store",
@@ -1057,7 +1063,7 @@ static AO_t * native_ref_as_atomic_i(MVMThreadContext *tc, MVMObject *cont) {
 
 MVMint64 MVM_6model_container_cas_i(MVMThreadContext *tc, MVMObject *cont,
                                     MVMint64 expected, MVMint64 value) {
-    return (MVMint64)MVM_cas(native_ref_as_atomic_i(tc, cont), (AO_t)expected, (AO_t)value);
+    return (MVMint64)MVM_cas(native_ref_as_atomic_i(tc, cont), AO_CAST(expected), AO_CAST(value));
 }
 
 MVMint64 MVM_6model_container_atomic_load_i(MVMThreadContext *tc, MVMObject *cont) {
@@ -1077,5 +1083,5 @@ MVMint64 MVM_6model_container_atomic_dec(MVMThreadContext *tc, MVMObject *cont) 
 }
 
 MVMint64 MVM_6model_container_atomic_add(MVMThreadContext *tc, MVMObject *cont, MVMint64 value) {
-    return (MVMint64)MVM_add(native_ref_as_atomic_i(tc, cont), (AO_t)value);
+    return (MVMint64)MVM_add(native_ref_as_atomic_i(tc, cont), AO_CAST(value));
 }

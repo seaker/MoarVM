@@ -139,6 +139,7 @@ static void compute_allocation_strategy(MVMThreadContext *tc, MVMObject *repr_in
                 MVMint32  type_id    = REPR(type)->ID;
                 if (spec->inlineable == MVM_STORAGE_SPEC_INLINED &&
                         (spec->boxed_primitive == MVM_STORAGE_SPEC_BP_INT ||
+                         spec->boxed_primitive == MVM_STORAGE_SPEC_BP_UINT64 ||
                          spec->boxed_primitive == MVM_STORAGE_SPEC_BP_NUM)) {
                     /* It's a boxed int or num; pretty easy. It'll just live in the
                      * body of the struct. Instead of masking in i here (which
@@ -359,7 +360,7 @@ static void initialize(MVMThreadContext *tc, MVMSTable *st, MVMObject *root, voi
 
     /* Allocate object body. */
     MVMCUnionBody *body = (MVMCUnionBody *)data;
-    body->cunion = MVM_calloc(1, repr_data->struct_size > 0 ? repr_data->struct_size : 1);
+    body->cunion = calloc(1, repr_data->struct_size > 0 ? repr_data->struct_size : 1);
 
     /* Allocate child obj array. */
     if (repr_data->num_child_objs > 0)
@@ -485,6 +486,14 @@ static void get_attribute(MVMThreadContext *tc, MVMSTable *st, MVMObject *root,
                 MVM_exception_throw_adhoc(tc, "CUnion: invalid native get of object attribute");
             break;
         }
+        case MVM_reg_uint64: {
+            if (attr_st)
+                result_reg->u64 = attr_st->REPR->box_funcs.get_uint(tc, attr_st, root,
+                    ((char *)body->cunion) + repr_data->struct_offsets[slot]);
+            else
+                MVM_exception_throw_adhoc(tc, "CUnion: invalid native get of object attribute");
+            break;
+        }
         case MVM_reg_num64: {
             if (attr_st)
                 result_reg->n64 = attr_st->REPR->box_funcs.get_num(tc, attr_st, root,
@@ -580,6 +589,14 @@ static void bind_attribute(MVMThreadContext *tc, MVMSTable *st, MVMObject *root,
             if (attr_st)
                 attr_st->REPR->box_funcs.set_int(tc, attr_st, root,
                     ((char *)body->cunion) + repr_data->struct_offsets[slot], value_reg.i64);
+            else
+                MVM_exception_throw_adhoc(tc, "CUnion: invalid native binding to object attribute");
+            break;
+        }
+        case MVM_reg_uint64: {
+            if (attr_st)
+                attr_st->REPR->box_funcs.set_uint(tc, attr_st, root,
+                    ((char *)body->cunion) + repr_data->struct_offsets[slot], value_reg.u64);
             else
                 MVM_exception_throw_adhoc(tc, "CUnion: invalid native binding to object attribute");
             break;
@@ -688,7 +705,7 @@ static void gc_cleanup(MVMThreadContext *tc, MVMSTable *st, void *data) {
     /* XXX For some reason, this causes crashes at the moment. Need to
      * work out why. */
     /*if (body->cunion)
-        MVM_free(body->cunion);*/
+        free(body->cunion);*/
 }
 
 /* Called by the VM in order to free memory associated with this object. */
@@ -756,9 +773,7 @@ static void deserialize_repr_data(MVMThreadContext *tc, MVMSTable *st, MVMSerial
     MVMint32 i, num_classes, num_slots;
 
     repr_data->struct_size = MVM_serialization_read_int(tc, reader);
-    if (reader->root.version >= 17) {
-        repr_data->struct_align = MVM_serialization_read_int(tc, reader);
-    }
+    repr_data->struct_align = MVM_serialization_read_int(tc, reader);
     repr_data->num_attributes = MVM_serialization_read_int(tc, reader);
     repr_data->num_child_objs = MVM_serialization_read_int(tc, reader);
 
