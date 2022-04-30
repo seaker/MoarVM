@@ -1,22 +1,22 @@
 [submodule "3rdparty/libuv"]
 	path = 3rdparty/libuv
-	url = https://github.com/libuv/libuv.git
+	url = git@github.com:libuv/libuv.git
 [submodule "3rdparty/dyncall"]
 	path = 3rdparty/dyncall
-	url = https://github.com/MoarVM/dyncall.git
+	url = git@github.com:MoarVM/dyncall.git
 [submodule "3rdparty/dynasm"]
 	path = 3rdparty/dynasm
-	url = https://github.com/MoarVM/dynasm.git
+	url = git@github.com:MoarVM/dynasm.git
 [submodule "3rdparty/libtommath"]
 	path = 3rdparty/libtommath
-	url = https://github.com/MoarVM/libtommath
+	url = git@github.com:MoarVM/libtommath
 [submodule "3rdparty/cmp"]
 	path = 3rdparty/cmp
-	url = https://github.com/MoarVM/cmp.git
+	url = git@github.com:MoarVM/cmp.git
 [submodule "3rdparty/libatomicops"]
 	path = 3rdparty/libatomicops
-	url = https://github.com/MoarVM/libatomic_ops
+	url = git@github.com:MoarVM/libatomic_ops
 [submodule "3rdparty/ryu"]
 	path = 3rdparty/ryu
-	url = https://github.com/MoarVM/ryu
+	url = git@github.com:MoarVM/ryu
 	ignore = untracked
