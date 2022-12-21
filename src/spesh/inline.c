@@ -24,13 +24,11 @@ static void demand_extop(MVMThreadContext *tc, MVMCompUnit *target_cu,
         if (extops[i].info == info) {
             MVMuint32 orig_size = target_cu->body.num_extops * sizeof(MVMExtOpRecord);
             MVMuint32 new_size = (target_cu->body.num_extops + 1) * sizeof(MVMExtOpRecord);
-            MVMExtOpRecord *new_extops = MVM_fixed_size_alloc(tc,
-                tc->instance->fsa, new_size);
+            MVMExtOpRecord *new_extops = MVM_malloc(new_size);
             memcpy(new_extops, target_cu->body.extops, orig_size);
             memcpy(&new_extops[target_cu->body.num_extops], &extops[i], sizeof(MVMExtOpRecord));
             if (target_cu->body.extops)
-                MVM_fixed_size_free_at_safepoint(tc, tc->instance->fsa, orig_size,
-                   target_cu->body.extops);
+                MVM_free_at_safepoint(tc, target_cu->body.extops);
             target_cu->body.extops = new_extops;
             target_cu->body.num_extops++;
             uv_mutex_unlock(target_cu->body.inline_tweak_mutex);
@@ -1125,8 +1123,10 @@ static void return_to_box(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshBB *re
     target_facts = MVM_spesh_get_facts(tc, g, ver_target);
     target_facts->writer = box_ins;
     target_facts->flags |= MVM_SPESH_FACT_KNOWN_TYPE | MVM_SPESH_FACT_CONCRETE | MVM_SPESH_FACT_KNOWN_BOX_SRC;
+    // Note: we use hllboxtype_i for both box_i and box_u
     target_facts->type = box_op == MVM_OP_box_i ? g->sf->body.cu->body.hll_config->int_box_type :
                          box_op == MVM_OP_box_n ? g->sf->body.cu->body.hll_config->num_box_type :
+                         box_op == MVM_OP_box_u ? g->sf->body.cu->body.hll_config->int_box_type :
                                                   g->sf->body.cu->body.hll_config->str_box_type;
     MVM_spesh_usages_add_by_reg(tc, g, box_operands[1], box_ins);
     MVM_spesh_usages_add_by_reg(tc, g, box_operands[2], box_ins);

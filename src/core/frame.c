@@ -129,10 +129,10 @@ static void instrumentation_level_barrier(MVMThreadContext *tc, MVMStaticFrame *
 void MVM_frame_destroy(MVMThreadContext *tc, MVMFrame *frame) {
     MVM_args_proc_cleanup(tc, &frame->params);
     if (frame->env && !MVM_FRAME_IS_ON_CALLSTACK(tc, frame))
-        MVM_fixed_size_free(tc, tc->instance->fsa, frame->allocd_env, frame->env);
+        MVM_free(frame->env);
     if (frame->extra) {
         MVMFrameExtra *e = frame->extra;
-        MVM_fixed_size_free(tc, tc->instance->fsa, sizeof(MVMFrameExtra), e);
+        MVM_free(e);
     }
 }
 
@@ -167,7 +167,7 @@ static MVMFrame * create_context_only(MVMThreadContext *tc, MVMStaticFrame *stat
      * is vivified to prevent the clone (which is what creates the correct
      * BEGIN/INIT semantics). */
     if (static_frame->body.env_size) {
-        frame->env = MVM_fixed_size_alloc_zeroed(tc, tc->instance->fsa, static_frame->body.env_size);
+        frame->env = MVM_calloc(1, static_frame->body.env_size);
         frame->allocd_env = static_frame->body.env_size;
         if (autoclose) {
             MVMROOT2(tc, frame, static_frame, {
@@ -267,7 +267,7 @@ static MVMFrame * allocate_unspecialized_frame(MVMThreadContext *tc,
         /* If we have an environment, that needs allocating separately for
          * heap-based frames. */
         if (env_size) {
-            frame->env = MVM_fixed_size_alloc_zeroed(tc, tc->instance->fsa, env_size);
+            frame->env = MVM_calloc(1, env_size);
             frame->allocd_env = env_size;
         }
     }
@@ -313,7 +313,7 @@ static MVMFrame * allocate_specialized_frame(MVMThreadContext *tc,
         /* If we have an environment, that needs allocating separately for
          * heap-based frames. */
         if (env_size) {
-            frame->env = MVM_fixed_size_alloc_zeroed(tc, tc->instance->fsa, env_size);
+            frame->env = MVM_calloc(1, env_size);
             frame->allocd_env = env_size;
         }
     }
@@ -652,8 +652,7 @@ MVMFrame * MVM_frame_move_to_heap(MVMThreadContext *tc, MVMFrame *frame) {
              * out-live the callstack entry. */
             MVMuint32 env_size = cur_to_promote->allocd_env;
             if (env_size) {
-                MVMRegister *heap_env = MVM_fixed_size_alloc(tc,
-                        tc->instance->fsa, env_size);
+                MVMRegister *heap_env = MVM_malloc(env_size);
                 memcpy(heap_env, cur_to_promote->env, env_size);
                 cur_to_promote->env = heap_env;
             }
@@ -1241,19 +1240,31 @@ MVMObject * MVM_frame_vivify_lexical(MVMThreadContext *tc, MVMFrame *f, MVMuint1
  * specified type. Non-existing object lexicals produce NULL, expected
  * (for better or worse) by various things. Otherwise, an error is thrown
  * if it does not exist. Incorrect type always throws. */
-MVMRegister * MVM_frame_find_lexical_by_name(MVMThreadContext *tc, MVMString *name, MVMuint16 type) {
+int MVM_frame_find_lexical_by_name(MVMThreadContext *tc, MVMString *name, MVMuint16 type, MVMRegister *r) {
     MVMSpeshFrameWalker fw;
     MVM_spesh_frame_walker_init_for_outers(tc, &fw, tc->cur_frame);
     MVMRegister *res = MVM_frame_lexical_lookup_using_frame_walker(tc, &fw, name, type);
 
-    if (res == NULL && MVM_UNLIKELY(type != MVM_reg_obj)) {
-        char *c_name = MVM_string_utf8_encode_C_string(tc, name);
-        char *waste[] = { c_name, NULL };
-        MVM_exception_throw_adhoc_free(tc, waste, "No lexical found with name '%s'",
-            c_name);
+    if (res == NULL) {
+        MVMCode *resolver = tc->cur_frame->static_info->body.cu->body.resolver;
+        if (resolver) {
+            MVMCallStackArgsFromC *args_record = MVM_callstack_allocate_args_from_c(tc,
+                    MVM_callsite_get_common(tc, MVM_CALLSITE_ID_STR));
+            args_record->args.source[0].s = name;
+            MVM_frame_dispatch_from_c(tc, resolver, args_record, r, MVM_RETURN_OBJ);
+        }
+        else if (MVM_UNLIKELY(type != MVM_reg_obj)) {
+            char *c_name = MVM_string_utf8_encode_C_string(tc, name);
+            char *waste[] = { c_name, NULL };
+            MVM_exception_throw_adhoc_free(tc, waste, "No lexical found with name '%s'",
+                c_name);
+        }
+        return 0;
     }
-
-    return res;
+    else {
+        *r = *res;
+        return 1;
+    }
 }
 
 /* Binds the specified value to the given lexical, finding it along the static
@@ -1294,14 +1305,12 @@ MVM_PUBLIC void MVM_frame_bind_lexical_by_name(MVMThreadContext *tc, MVMString *
 }
 
 /* Finds a lexical in the outer frame, throwing if it's not there. */
-MVMObject * MVM_frame_find_lexical_by_name_outer(MVMThreadContext *tc, MVMString *name) {
-    MVMRegister *r;
+void MVM_frame_find_lexical_by_name_outer(MVMThreadContext *tc, MVMString *name, MVMRegister *result) {
+    int found;
     MVMROOT(tc, name, {
-        r = MVM_frame_find_lexical_by_name_rel(tc, name, tc->cur_frame->outer);
+        found = MVM_frame_find_lexical_by_name_rel(tc, name, tc->cur_frame->outer, result);
     });
-    if (MVM_LIKELY(r != NULL))
-        return r->o;
-    else {
+    if (MVM_UNLIKELY(!found)) {
         char *c_name = MVM_string_utf8_encode_C_string(tc, name);
         char *waste[] = { c_name, NULL };
         MVM_exception_throw_adhoc_free(tc, waste, "No lexical found with name '%s'",
@@ -1311,7 +1320,7 @@ MVMObject * MVM_frame_find_lexical_by_name_outer(MVMThreadContext *tc, MVMString
 
 /* Looks up the address of the lexical with the specified name, starting with
  * the specified frame. Only works if it's an object lexical.  */
-MVMRegister * MVM_frame_find_lexical_by_name_rel(MVMThreadContext *tc, MVMString *name, MVMFrame *cur_frame) {
+int MVM_frame_find_lexical_by_name_rel(MVMThreadContext *tc, MVMString *name, MVMFrame *cur_frame, MVMRegister *r) {
     while (cur_frame != NULL) {
         if (cur_frame->static_info->body.num_lexicals) {
             MVMuint32 idx = MVM_get_lexical_by_name(tc, cur_frame->static_info, name);
@@ -1320,7 +1329,8 @@ MVMRegister * MVM_frame_find_lexical_by_name_rel(MVMThreadContext *tc, MVMString
                     MVMRegister *result = &cur_frame->env[idx];
                     if (!result->o)
                         MVM_frame_vivify_lexical(tc, cur_frame, idx);
-                    return result;
+                    *r = *result;
+                    return 1;
                 }
                 else {
                     char *c_name = MVM_string_utf8_encode_C_string(tc, name);
@@ -1333,7 +1343,15 @@ MVMRegister * MVM_frame_find_lexical_by_name_rel(MVMThreadContext *tc, MVMString
         }
         cur_frame = cur_frame->outer;
     }
-    return NULL;
+    MVMCode *resolver = tc->cur_frame->static_info->body.cu->body.resolver;
+    if (resolver) {
+        MVMCallStackArgsFromC *args_record = MVM_callstack_allocate_args_from_c(tc,
+                MVM_callsite_get_common(tc, MVM_CALLSITE_ID_STR));
+        args_record->args.source[0].s = name;
+        MVM_frame_dispatch_from_c(tc, resolver, args_record, r, MVM_RETURN_OBJ);
+        return 1;
+    }
+    return 0;
 }
 
 /* Performs some kind of lexical lookup using the frame walker. The exact walk
@@ -1508,8 +1526,8 @@ MVMRegister * MVM_frame_find_contextual_by_name(MVMThreadContext *tc, MVMString 
             vivify, found_frame);
 }
 
-MVMObject * MVM_frame_getdynlex_with_frame_walker(MVMThreadContext *tc, MVMSpeshFrameWalker *fw,
-                                                  MVMString *name) {
+void MVM_frame_getdynlex_with_frame_walker(MVMThreadContext *tc, MVMSpeshFrameWalker *fw,
+                                                  MVMString *name, MVMRegister *r) {
     MVMuint16 type;
     MVMFrame *found_frame;
     MVMRegister *lex_reg = MVM_frame_find_dynamic_using_frame_walker(tc, fw, name, &type,
@@ -1560,12 +1578,26 @@ MVMObject * MVM_frame_getdynlex_with_frame_walker(MVMThreadContext *tc, MVMSpesh
                 MVM_exception_throw_adhoc(tc, "invalid register type in getdynlex: %d", type);
         }
     }
-    return result ? result : tc->instance->VMNull;
+    if (result) {
+        r->o = result;
+    }
+    else {
+        MVMCode *resolver = tc->cur_frame->static_info->body.cu->body.dynamic_resolver;
+        if (resolver) {
+            MVMCallStackArgsFromC *args_record = MVM_callstack_allocate_args_from_c(tc,
+                    MVM_callsite_get_common(tc, MVM_CALLSITE_ID_STR));
+            args_record->args.source[0].s = name;
+            MVM_frame_dispatch_from_c(tc, resolver, args_record, r, MVM_RETURN_OBJ);
+        }
+        else {
+            r->o = tc->instance->VMNull;
+        }
+    }
 }
-MVMObject * MVM_frame_getdynlex(MVMThreadContext *tc, MVMString *name, MVMFrame *cur_frame) {
+void MVM_frame_getdynlex(MVMThreadContext *tc, MVMString *name, MVMFrame *cur_frame, MVMRegister *r) {
     MVMSpeshFrameWalker fw;
     MVM_spesh_frame_walker_init(tc, &fw, cur_frame, 0);
-    return MVM_frame_getdynlex_with_frame_walker(tc, &fw, name);
+    MVM_frame_getdynlex_with_frame_walker(tc, &fw, name, r);
 }
 
 void MVM_frame_binddynlex(MVMThreadContext *tc, MVMString *name, MVMObject *value, MVMFrame *cur_frame) {
@@ -1684,7 +1716,7 @@ MVMuint16 MVM_frame_lexical_primspec(MVMThreadContext *tc, MVMFrame *f, MVMStrin
  * frame. This is used to hold data that only a handful of frames need. */
 MVMFrameExtra * MVM_frame_extra(MVMThreadContext *tc, MVMFrame *f) {
     if (!f->extra)
-        f->extra = MVM_fixed_size_alloc_zeroed(tc, tc->instance->fsa, sizeof(MVMFrameExtra));
+        f->extra = MVM_calloc(1, sizeof(MVMFrameExtra));
     return f->extra;
 }
 
