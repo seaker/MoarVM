@@ -218,12 +218,9 @@ struct MVMInstance {
     MVMPtrHashTable     object_ids;
     uv_mutex_t    mutex_object_ids;
 
-    /* Fixed size allocator. */
-    MVMFixedSizeAlloc *fsa;
-
-    /* Vector of memory to free at the next safepoint, and a mutex to guard
+    /* Linked list of memory to free at the next safepoint, and a mutex to guard
      * access to it. */
-    MVM_VECTOR_DECL(void *, free_at_safepoint);
+    MVMAllocSafepointFreeListEntry *free_at_safepoint;
     uv_mutex_t mutex_free_at_safepoint;
 
     /* Whether the --full-cleanup flag was passed. */
@@ -436,10 +433,12 @@ struct MVMInstance {
     MVMNFGState *nfg;
 
     /* Unicode hashes. */
-    MVMUniHashTable property_codes_by_names_aliases;
-    MVMUniHashTable property_codes_by_seq_names;
-    MVMUniHashTable codepoints_by_name;
+    MVMUniHashTable  property_codes_by_names_aliases;
+    MVMUniHashTable  property_codes_by_seq_names;
+    MVMUniHashTable  codepoints_by_name;
     MVMUniHashTable *unicode_property_values_hashes;
+
+    uv_mutex_t       mutex_property_codes_hash_setup;
 
     /************************************************************************
      * Type objects for built-in types and special values

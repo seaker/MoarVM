@@ -1,3 +1,74 @@
+New in 2023.02
+
+Core:
++ Avoid implicit function declarations in pthread_setname_np probe [9e6d9a8f]
++ Speedup creating sha1 digest string [8f90dc7c]
++ Bump mimalloc to v2.0.9 [d5430563]
++ Speedup VMArray's deserialize()... [a508c06b]
++ Update repo checking out script to also use 'main' [c9055873]
++ Add `--has-mimalloc` option to use system mimalloc [99479afe]
++ Update GitHub CI pipelines to track branch renames and OS deprecations
+  [d7721042][e4336c71][d1bc8ff8][87183069][165e8297][8a80d3c6][8ddf6702]
++ Work around "const_iX NYI" after getlexstatic_o with fallback resolver
+  [34bae78d]
+
+Documentation:
+
+GC:
+
+JIT:
++ Jit nqp::rand_(i|n) [6866ff81]
+
+Spesh:
++ Use right size for a lit_str_idx in JIT and spesh [6b456a6c]
+
+Strings:
++ Simplify MVM_string_utf8_c8_encode_C_string [a64765e7]
++ Simplify MVM_string_index [ada3b80b]
++ Update to Unicode 15.0 [ebefe261]
+
+New in 2022.12
+
+Core:
++ Protect the two property code lookup hashes being set up with a mutex
+  [9bc1beed]
++ Add fallback resolver [43e60db9][a6fbcf6b][35064bf9][c89c3ec8][5d0f92c6]
++ Add definition of AI_NUMERICSERV, fixes build on MacOS 10.6 for ppc 
+  [976c1168]
++ Add unsigned comparison ops (eq, ne, (l|g)(e|t)) [c77dc1d4]
++ Add chown op [c69534c6][a1cbb9c4]
++ Reset errno to error of latest call to mkdir [4089a869]
+
+Documentation:
+
+GC:
++ Remove the fixed size allocator (FSA) [2a8c494e]
+
+JIT:
+
+Spesh:
++ use correct format string in spesh log skip line [4575c474]
+
+Strings:
++ Use 2-char-at-a-time version of jeaiii's itoa [fd0cadbf]
+
+New in 2022.07
+
+Core:
++ Attempt at implementing a "bytecode-size" dispatch [cc49dcf9]
++ Error message fix - one usually connects *to* things [79bb406d]
+
+Documentation:
+
+GC:
++ Run finalizers even with tc->last_handler_result [3796890b]
+
+JIT:
+
+Spesh:
++ Set facts on disp prog translation of int and num lits [09ce373a]
++ Commit some missed uint things [ced36686]
+
 New in 2022.06
 
 Core:
