@@ -165,6 +165,7 @@ static int is_graph_inlineable(MVMThreadContext *tc, MVMSpeshGraph *inliner,
              * instruction, because we can't uninline in such a case. */
             else if (opcode == MVM_OP_sp_getarg_o ||
                     opcode == MVM_OP_sp_getarg_i ||
+                    opcode == MVM_OP_sp_getarg_u ||
                     opcode == MVM_OP_sp_getarg_n ||
                     opcode == MVM_OP_sp_getarg_s) {
                 if (ins->operands[1].lit_i16 >= MAX_ARGS_FOR_OPT) {
@@ -474,6 +475,14 @@ static void rewrite_curcode(MVMThreadContext *tc, MVMSpeshGraph *g,
     MVM_spesh_usages_add_by_reg(tc, g, code_ref_reg, ins);
 }
 
+/* Make a callercode instruction turn into curcode so it refers to
+ * the inliner's code object */
+static void rewrite_callercode(MVMThreadContext *tc, MVMSpeshGraph *g,
+        MVMSpeshIns *ins, MVMuint16 num_locals) {
+    ins->operands[0].reg.orig += num_locals;
+    ins->info = MVM_op_get_op(MVM_OP_curcode);
+}
+
 /* Rewrites a lexical lookup to an outer to be done via. a register holding
  * the outer coderef. */
 static void rewrite_outer_lookup(MVMThreadContext *tc, MVMSpeshGraph *g,
@@ -641,6 +650,9 @@ static MVMSpeshBB * merge_graph(MVMThreadContext *tc, MVMSpeshGraph *inliner,
             }
             else if (opcode == MVM_OP_curcode) {
                 rewrite_curcode(tc, inliner, ins, inliner->num_locals, code_ref_reg);
+            }
+            else if (opcode == MVM_OP_callercode) {
+                rewrite_callercode(tc, inliner, ins, inliner->num_locals);
             }
             else if (opcode == MVM_OP_sp_getlex_o && ins->operands[1].lex.outers > 0) {
                 rewrite_outer_lookup(tc, inliner, ins, inliner->num_locals,
@@ -899,6 +911,10 @@ static MVMSpeshBB * merge_graph(MVMThreadContext *tc, MVMSpeshGraph *inliner,
     case MVM_OP_sp_runbytecode_i:
         inliner->inlines[total_inlines - 1].res_reg = runbytecode_ins->operands[0].reg.orig;
         inliner->inlines[total_inlines - 1].res_type = MVM_RETURN_INT;
+        break;
+    case MVM_OP_sp_runbytecode_u:
+        inliner->inlines[total_inlines - 1].res_reg = runbytecode_ins->operands[0].reg.orig;
+        inliner->inlines[total_inlines - 1].res_type = MVM_RETURN_UINT;
         break;
     case MVM_OP_sp_runbytecode_n:
         inliner->inlines[total_inlines - 1].res_reg = runbytecode_ins->operands[0].reg.orig;
@@ -1175,7 +1191,7 @@ static void rewrite_uint_return(MVMThreadContext *tc, MVMSpeshGraph *g,
         break;
     default:
         MVM_oops(tc,
-            "Spesh inline: unhandled case (%s) of return_i", runbytecode_ins->info->name);
+            "Spesh inline: unhandled case (%s) of return_u", runbytecode_ins->info->name);
     }
 }
 static void rewrite_num_return(MVMThreadContext *tc, MVMSpeshGraph *g,
@@ -1227,6 +1243,9 @@ static void rewrite_obj_return(MVMThreadContext *tc, MVMSpeshGraph *g,
         break;
     case MVM_OP_sp_runbytecode_i:
         return_to_op(tc, g, return_ins, runbytecode_ins->operands[0], MVM_OP_unbox_i);
+        break;
+    case MVM_OP_sp_runbytecode_u:
+        return_to_op(tc, g, return_ins, runbytecode_ins->operands[0], MVM_OP_unbox_u);
         break;
     case MVM_OP_sp_runbytecode_n:
         return_to_op(tc, g, return_ins, runbytecode_ins->operands[0], MVM_OP_unbox_n);
@@ -1357,6 +1376,7 @@ static void rewrite_args(MVMThreadContext *tc, MVMSpeshGraph *inliner,
             switch (opcode) {
                 case MVM_OP_sp_getarg_o:
                 case MVM_OP_sp_getarg_i:
+                case MVM_OP_sp_getarg_u:
                 case MVM_OP_sp_getarg_n:
                 case MVM_OP_sp_getarg_s: {
                     MVMuint16 idx = ins->operands[1].lit_i16;

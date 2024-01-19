@@ -41,7 +41,6 @@ CFLAGS    = @cflags@ @ccdef@MVM_TRACING=$(TRACING) @ccdef@MVM_CGOTO=$(CGOTO)
 CINCLUDES = @moar_cincludes@ \
             @ccinc@@shaincludedir@ \
             @mimalloc_include@ \
-            @ccincsystem@3rdparty/tinymt \
             @ccincsystem@3rdparty/ryu \
             @ccincsystem@3rdparty/dynasm \
             @ccincsystem@3rdparty/cmp \
@@ -188,6 +187,7 @@ OBJECTS2 = src/6model/reprs/MVMDLLSym@obj@ \
           src/6model/reprs/MVMStaticFrameSpesh@obj@ \
           src/6model/reprs/MVMCapture@obj@ \
           src/6model/reprs/MVMTracked@obj@ \
+          src/6model/reprs/MVMStat@obj@ \
           src/6model/6model@obj@ \
           src/6model/bootstrap@obj@ \
           src/6model/sc@obj@ \
@@ -300,6 +300,7 @@ HEADERS = src/moar.h \
           src/core/continuation.h \
           src/core/intcache.h \
           src/core/regionalloc.h \
+          src/core/jfs64.h \
           src/debug/debugserver.h \
           src/io/io.h \
           src/io/eventloop.h \
@@ -373,6 +374,7 @@ HEADERS = src/moar.h \
           src/6model/reprs/MVMStaticFrameSpesh.h \
           src/6model/reprs/MVMCapture.h \
           src/6model/reprs/MVMTracked.h \
+          src/6model/reprs/MVMStat.h \
           src/6model/sc.h \
           src/disp/boot.h \
           src/disp/registry.h \
@@ -461,6 +463,7 @@ HEADERS = src/moar.h \
           src/platform/memmem32.h
 
 UV_UNIX = 3rdparty/libuv/src/strscpy@obj@ \
+          3rdparty/libuv/src/strtok@obj@ \
           3rdparty/libuv/src/fs-poll@obj@ \
           3rdparty/libuv/src/inet@obj@ \
           3rdparty/libuv/src/uv-common@obj@ \
@@ -484,10 +487,7 @@ UV_UNIX = 3rdparty/libuv/src/strscpy@obj@ \
           3rdparty/libuv/src/unix/tty@obj@ \
           3rdparty/libuv/src/unix/udp@obj@
 
-UV_LINUX = 3rdparty/libuv/src/unix/linux-core@obj@ \
-           3rdparty/libuv/src/unix/linux-inotify@obj@ \
-           3rdparty/libuv/src/unix/linux-syscalls@obj@ \
-           3rdparty/libuv/src/unix/epoll@obj@ \
+UV_LINUX = 3rdparty/libuv/src/unix/linux@obj@ \
            3rdparty/libuv/src/unix/procfs-exepath@obj@ \
            3rdparty/libuv/src/unix/proctitle@obj@ \
            $(UV_UNIX)
@@ -719,10 +719,6 @@ tools/repr_size_table@exe@: tools/repr_size_table@obj@ @moarlib@ $(DLL_LIBS)
 	$(MSG) linking $@
 	$(CMD)@sharule@ $(NOOUT)
 
-@mtlib@: @mtobjects@
-	$(MSG) linking $@
-	$(CMD)@mtrule@ $(NOOUT)
-
 @cmplib@: @cmpobjects@
 	$(MSG) linking $@
 	$(CMD)@cmprule@ $(NOOUT)
@@ -752,7 +748,6 @@ realclean: clean
 	-$(RM) @laolib@ $(NOOUT) $(NOERR)
 	-$(CMD)@tomclean@ $(NOOUT) $(NOERR)
 	-$(CMD)@shaclean@ $(NOOUT) $(NOERR)
-	-$(CMD)@mtclean@ $(NOOUT) $(NOERR)
 	-$(CMD)@dcclean@ $(NOOUT) $(NOERR)
 	-$(CMD)@cmpclean@ $(NOOUT) $(NOERR)
 	-$(RM) $(MINILUA) $(NOOUT) $(NOERR)

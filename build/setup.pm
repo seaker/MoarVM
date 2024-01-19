@@ -26,12 +26,6 @@ my %TP_TOM = (
     src  => [ '3rdparty/libtommath' ],
 );
 
-my %TP_MT = (
-    name => 'tinymt',
-    path => '3rdparty/tinymt',
-    src  => [ '3rdparty/tinymt' ],
-);
-
 my %TP_DC = (
     name  => 'dyncall_s',
     path  => '3rdparty/dyncall/dyncall',
@@ -77,7 +71,6 @@ our %THIRDPARTY = (
     lao => { %TP_LAO },
     tom => { %TP_TOM },
     sha => { %TP_SHA },
-    mt  => { %TP_MT },
     dc  => { %TP_DC },
     dcb => { %TP_DCB },
     dl  => { %TP_DL },
@@ -426,7 +419,7 @@ our %COMPILERS = (
         ld => 'link',
         as => 'ml64',
 
-        ccmiscflags  => '/nologo /MT /std:c++latest',
+        ccmiscflags  => '/nologo /MT /std:c17',
         ccwarnflags  => '',
         ccoptiflags  => '/Ox /GL /DNDEBUG',
         ccdebugflags => '/Zi',
@@ -479,7 +472,7 @@ our %COMPILERS = (
 my %OS_WIN32 = (
     exe      => '.exe',
     defs     => [ qw( WIN32 AO_ASSUME_WINDOWS98 ) ],
-    syslibs  => [ qw( shell32 ws2_32 mswsock rpcrt4 advapi32 psapi iphlpapi userenv user32 bcrypt ) ],
+    syslibs  => [ qw( shell32 ws2_32 mswsock rpcrt4 advapi32 psapi iphlpapi userenv user32 bcrypt dbghelp ole32 ) ],
     platform => '$(PLATFORM_WIN32)',
 
     translate_newline_output => 1,
@@ -506,7 +499,7 @@ my %OS_WIN32 = (
 my %OS_MINGW32 = (
     %OS_WIN32,
 
-    defs => [ @{$OS_WIN32{defs}}, qw( _WIN32_WINNT=0x0600 ) ],
+    defs => [ @{$OS_WIN32{defs}}, qw( _WIN32_WINNT=0x0602 ) ],
 );
 
 my %OS_POSIX = (

@@ -770,6 +770,9 @@ static void optimize_container_check(MVMThreadContext *tc, MVMSpeshGraph *g,
                         case MVM_STORAGE_SPEC_BP_INT:
                             known_result = ins->info->opcode == MVM_OP_iscont_i;
                             break;
+                        case MVM_STORAGE_SPEC_BP_UINT64:
+                            known_result = ins->info->opcode == MVM_OP_iscont_u;
+                            break;
                         case MVM_STORAGE_SPEC_BP_NUM:
                             known_result = ins->info->opcode == MVM_OP_iscont_n;
                             break;
@@ -1547,9 +1550,13 @@ static void optimize_runbytecode(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpes
         /* Do not try to inline calls from inlined basic blocks! Otherwise the new inlinees would
          * get added to the inlines table after the original inlinee which they are nested in and
          * the frame walker would find the outer inlinee first, giving wrong results */
+        /* Inicidentally, the rewrite_callercode function in inline.c also
+         * relies on "no nested inlines" */
         MVMSpeshGraph *inline_graph = bb->inlined ? NULL : MVM_spesh_inline_try_get_graph(tc, g,
             target_sf, target_sf->body.spesh->body.spesh_candidates[spesh_cand],
             ins, &no_inline_reason, &effective_size, &no_inline_info);
+        if (tc->instance->spesh_inline_log && bb->inlined)
+            no_inline_reason = "refused to inline into an already inlined bb";
         log_inline(tc, g, target_sf, inline_graph, effective_size, no_inline_reason,
             0, no_inline_info);
         if (inline_graph) {
@@ -2095,6 +2102,7 @@ static void optimize_bb_switch(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshB
             optimize_signedness_coerce(tc, g, bb, ins);
             break;
         case MVM_OP_coerce_in:
+        case MVM_OP_coerce_un:
             optimize_coerce(tc, g, bb, ins);
             break;
         case MVM_OP_islist:
@@ -2144,18 +2152,22 @@ static void optimize_bb_switch(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshB
         case MVM_OP_setelemspos:
         case MVM_OP_splice:
         case MVM_OP_bindattr_i:
+        //case MVM_OP_bindattr_u:
         case MVM_OP_bindattr_n:
         case MVM_OP_bindattr_s:
         case MVM_OP_bindattr_o:
         case MVM_OP_bindattrs_i:
+        case MVM_OP_bindattrs_u:
         case MVM_OP_bindattrs_n:
         case MVM_OP_bindattrs_s:
         case MVM_OP_bindattrs_o:
         case MVM_OP_assign_i:
+        case MVM_OP_assign_u:
         case MVM_OP_assign_n:
             optimize_repr_op(tc, g, bb, ins, 0);
             break;
         case MVM_OP_atpos_i:
+        case MVM_OP_atpos_u:
         case MVM_OP_atpos_n:
         case MVM_OP_atpos_s:
         case MVM_OP_atpos_o:
@@ -2175,10 +2187,12 @@ static void optimize_bb_switch(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshB
         case MVM_OP_existskey:
         case MVM_OP_existspos:
         case MVM_OP_getattr_i:
+        case MVM_OP_getattr_u:
         case MVM_OP_getattr_n:
         case MVM_OP_getattr_s:
         case MVM_OP_getattr_o:
         case MVM_OP_getattrs_i:
+        case MVM_OP_getattrs_u:
         case MVM_OP_getattrs_n:
         case MVM_OP_getattrs_s:
         case MVM_OP_getattrs_o:
@@ -2250,6 +2264,7 @@ static void optimize_bb_switch(MVMThreadContext *tc, MVMSpeshGraph *g, MVMSpeshB
         case MVM_OP_iscont:
         case MVM_OP_isrwcont:
         case MVM_OP_iscont_i:
+        case MVM_OP_iscont_u:
         case MVM_OP_iscont_n:
         case MVM_OP_iscont_s:
             optimize_container_check(tc, g, bb, ins);
@@ -2571,7 +2586,7 @@ static void walk_set_looking_for_unbool(MVMThreadContext *tc, MVMSpeshGraph *g, 
         const MVMOpInfo *opinfo = user->info;
         MVMuint16 opcode = opinfo->opcode;
 
-        if (opcode == MVM_OP_sp_runcfunc_i) {
+        if (opcode == MVM_OP_sp_runcfunc_i || opcode == MVM_OP_sp_runcfunc_u) {
             MVMSpeshFacts *dispatch_facts = MVM_spesh_get_facts(tc, g, user->operands[1]);
             if (is_syscall(tc, dispatch_facts, MVM_disp_syscall_boolify_boxed_int_impl))
                 try_eliminate_one_box_unbox(tc, g, bb, box_ins, user);
@@ -2590,7 +2605,7 @@ static void try_eliminate_bool_unbool_pair(MVMThreadContext *tc, MVMSpeshGraph *
         const MVMOpInfo *opinfo = user->info;
         MVMuint16 opcode = opinfo->opcode;
 
-        if (opcode == MVM_OP_sp_runcfunc_i) {
+        if (opcode == MVM_OP_sp_runcfunc_i || opcode == MVM_OP_sp_runcfunc_u) {
             MVMSpeshFacts *dispatch_facts = MVM_spesh_get_facts(tc, g, user->operands[1]);
             if (is_syscall(tc, dispatch_facts, MVM_disp_syscall_boolify_boxed_int_impl))
                 try_eliminate_one_box_unbox(tc, g, bb, ins, user);

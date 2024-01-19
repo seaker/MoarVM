@@ -1,3 +1,115 @@
+New in 2023.12
+
+Core:
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2023.11
+
+Core:
++ Add syscall that returns stat times in integer nanoseconds [18604f69]
++ Update libuv to version 1.47.0 [9a6eabfe]
++ Bump minimum supported version to windows 8 [428b821d]
++ Prepare for msvc toolchain c11 atomics [030f8ad0][3e4b6ede]
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2023.10
+
+Core:
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2023.09
+
+Core:
++ Add stat repr and related syscalls [e149d3de]
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2023.08
+
+Core:
++ Fix incompatible function pointer types with clang16 [871f7bca]
++ Update libuv to version 1.46 [75fe055c]
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2023.06
+
+Core:
++ Fix Windows build [278af767]
++ Use JFS64 instead of TinyMT64 as our PRNG [1550dc7c][495d4f16]
++ Add ops for unix domain sockets [3df20182]
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2023.05
+
+Core:
++ Update libuv to version 1.45.0 [5699d34a][6f4e09a7]
+
+Documentation:
++ mention we have unicode 15 [80559738]
+
+GC:
+
+JIT:
+
+Spesh:
++ log reason when not inlining into inlined bb [ab61b044]
++ callercode no longer prevents inlining [3b4d55a0][b9df871d]
+
+Strings:
+
 New in 2023.04
 
 Core:
