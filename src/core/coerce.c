@@ -4,6 +4,50 @@
 #if defined(_MSC_VER)
 #define strtoll _strtoi64
 #define snprintf _snprintf
+/* slightly adapted to use in MoarVM */
+//===-- int_lib.h - configuration header for compiler-rt  -----------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This file is a configuration header for compiler-rt.
+// This file is not part of the interface of this library.
+//
+//===----------------------------------------------------------------------===//
+#if !defined(__clang__)
+#include <intrin.h>
+
+static int __inline __builtin_clz(uint32_t value) {
+  unsigned long leading_zero = 0;
+  if (_BitScanReverse(&leading_zero, value))
+    return 31 - leading_zero;
+  return 32;
+}
+
+#if defined(_M_ARM) || defined(_M_X64)
+
+static int __inline __builtin_clzll(uint64_t value) {
+  unsigned long leading_zero = 0;
+  if (_BitScanReverse64(&leading_zero, value))
+    return 63 - leading_zero;
+  return 64;
+}
+
+#else
+
+static int __inline __builtin_clzll(uint64_t value) {
+  uint32_t msh = (uint32_t)(value >> 32);
+  uint32_t lsh = (uint32_t)(value & 0xFFFFFFFF);
+  if (msh != 0)
+    return __builtin_clz(msh);
+  return 32 + __builtin_clz(lsh);
+}
+
+#endif
+#endif
 #endif
 
 MVMint64 MVM_coerce_istrue_s(MVMThreadContext *tc, MVMString *str) {
@@ -89,55 +133,52 @@ static char * i64toa_jeaiii(int64_t i, char* b) {
 }
 
 /* End code */
-
+static const int mag[] = { 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 15, 15, 15, 16, 16, 16, 16, 17, 17, 17, 18, 18, 18, 19, 19, 19, 19, 20, 20 };
 MVMString * MVM_coerce_i_s(MVMThreadContext *tc, MVMint64 i) {
-    char buffer[20];
-    int len;
     /* See if we can hit the cache. */
-    int cache = 0 <= i && i < MVM_INT_TO_STR_CACHE_SIZE;
+    const int cache = 0 <= i && i < MVM_INT_TO_STR_CACHE_SIZE;
     if (cache) {
         MVMString *cached = tc->instance->int_to_str_cache[i];
         if (cached)
             return cached;
     }
     /* Otherwise, need to do the work; cache it if in range. */
-    len = i64toa_jeaiii(i, buffer) - buffer;
+    const int is_negative = i < 0;
+    const int msb = 64 - __builtin_clzll((is_negative ? -i : i) | 1);
+    char *buffer = MVM_malloc(mag[msb] + is_negative + 1);
+    const int len = i64toa_jeaiii(i, buffer) - buffer;
     if (0 <= len) {
-        MVMString *result = NULL;
-        MVMGrapheme8 *blob = MVM_malloc(len);
-        memcpy(blob, buffer, len);
-        result = MVM_string_ascii_from_buf_nocheck(tc, blob, len);
+        MVMString *result = MVM_string_ascii_from_buf_nocheck(tc, (MVMGrapheme8 *)buffer, len);
         if (cache)
             tc->instance->int_to_str_cache[i] = result;
         return result;
     }
     else {
+        MVM_free(buffer);
         MVM_exception_throw_adhoc(tc, "Could not stringify integer (%"PRId64")", i);
     }
 }
 
 MVMString * MVM_coerce_u_s(MVMThreadContext *tc, MVMuint64 i) {
-    char buffer[20];
-    int len;
     /* See if we can hit the cache. */
-    int cache = i < MVM_INT_TO_STR_CACHE_SIZE;
+    const int cache = i < MVM_INT_TO_STR_CACHE_SIZE;
     if (cache) {
         MVMString *cached = tc->instance->int_to_str_cache[i];
         if (cached)
             return cached;
     }
     /* Otherwise, need to do the work; cache it if in range. */
-    len = u64toa_jeaiii(i, buffer) - buffer;
+    const int msb = 64 - __builtin_clzll(i | 1);
+    char *buffer = MVM_malloc(mag[msb] + 1);
+    const int len = u64toa_jeaiii(i, buffer) - buffer;
     if (0 <= len) {
-        MVMString *result = NULL;
-        MVMGrapheme8 *blob = MVM_malloc(len);
-        memcpy(blob, buffer, len);
-        result = MVM_string_ascii_from_buf_nocheck(tc, blob, len);
+        MVMString *result = MVM_string_ascii_from_buf_nocheck(tc, (MVMGrapheme8 *)buffer, len);
         if (cache)
             tc->instance->int_to_str_cache[i] = result;
         return result;
     }
     else {
+        MVM_free(buffer);
         MVM_exception_throw_adhoc(tc, "Could not stringify integer (%"PRIu64")", i);
     }
 }

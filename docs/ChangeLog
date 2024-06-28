@@ -1,3 +1,109 @@
+New in 2024.06
+
+Core:
++ Reapply "Don't lose return value with LEAVE phasers" [51ca012d]
++ Allow serializing of uint64s (#1813) [1bf28177]
++ Add missing __builtin_clz definition for MSVC [a7b6e3cf]
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2024.05
+
+Core:
++ Cleanup variables in bigint ops error cases [dbdfb399]
++ Silence incorrect GCC warning [c9dd4dd9]
++ Provide some mechanisms for introspecting file mode [fe2080ac]
++ Attach the spawn_result when it contains an error code [f1173cb2]
+
+Documentation:
++ Update bytecode documentation [8ccb8775]
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
++ Just malloc instead of stack+malloc+memcpy when coercing int to string
+  [62e64677][c1eedd50]
+
+New in 2024.04
+
+Core:
++ Increase the size of the int-to-str cache to 65 [f2220d93]
++ Use atomic operations for on SerializationReader's working flag [d5dafa9b]
++ Fix memcmp call [47f518af]
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2024.03
+
+Core:
++ Add a GitHub release build workflow (ubuntu, macos, windows) [2a60bd07]
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2024.02
+
+Core:
++ Fix uninitialized is_unsigned flag in P6num [a1a18e98]
++ Slightly optimize creating backtraces [6a9c523d]
++ Update libuv to version 1.48.0 [cc00279b]
++ Provide hint for why Rakudo tried to convert from Int to int, when it cannot.
+  [8320c9f4]
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
+New in 2024.01
+
+Core:
++ Add a bunch of *_u stuff [f7753f07] [6c0271c1] [ec1649d5] [e1b2af27]
+  [eae59995] [594df3df] [274cb0f3] [06a7b2c9] [017e0429] [40d1ccd4] [86ed9a19]
+  [444feb52]
+
+Documentation:
+
+GC:
+
+JIT:
+
+Spesh:
+
+Strings:
+
 New in 2023.12
 
 Core:

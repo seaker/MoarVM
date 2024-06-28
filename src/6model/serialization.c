@@ -1271,18 +1271,11 @@ static void serialize_context(MVMThreadContext *tc, MVMSerializationWriter *writ
     for (i = 0; i < sf->body.num_lexicals; i++) {
         MVM_serialization_write_str(tc, writer, lexnames[i]);
         switch (sf->body.lexical_types[i]) {
-            case MVM_reg_int8:
-            case MVM_reg_int16:
-            case MVM_reg_int32:
-                MVM_gc_allocate_gen2_default_clear(tc);
-                MVM_exception_throw_adhoc(tc, "unsupported lexical type %s", MVM_reg_get_debug_name(tc, sf->body.lexical_types[i]));
-                break;
             case MVM_reg_int64:
                 MVM_serialization_write_int(tc, writer, frame->env[i].i64);
                 break;
-            case MVM_reg_num32:
-                MVM_gc_allocate_gen2_default_clear(tc);
-                MVM_exception_throw_adhoc(tc, "unsupported lexical type %s", MVM_reg_get_debug_name(tc, sf->body.lexical_types[i]));
+            case MVM_reg_uint64:
+                MVM_serialization_write_int(tc, writer, frame->env[i].u64);
                 break;
             case MVM_reg_num64:
                 MVM_serialization_write_num(tc, writer, frame->env[i].n64);
@@ -2329,7 +2322,9 @@ static void deserialize_context(MVMThreadContext *tc, MVMSerializationReader *re
         switch (MVM_frame_lexical_primspec(tc, f, sym)) {
             case MVM_STORAGE_SPEC_BP_INT:
                 lex->i64 = MVM_serialization_read_int(tc, reader);
-
+                break;
+            case MVM_STORAGE_SPEC_BP_UINT64:
+                lex->u64 = MVM_serialization_read_int(tc, reader);
                 break;
             case MVM_STORAGE_SPEC_BP_NUM:
                 lex->n64 = MVM_serialization_read_num(tc, reader);
@@ -2774,7 +2769,7 @@ MVMObject * MVM_serialization_demand_object(MVMThreadContext *tc, MVMSerializati
 
     /* Flag that we're working on some deserialization (and so will run the
      * loop). */
-    sr->working++;
+    MVM_incr(&sr->working);
     MVM_gc_allocate_gen2_default_set(tc);
 
     /* Stub the object. */
@@ -2783,13 +2778,13 @@ MVMObject * MVM_serialization_demand_object(MVMThreadContext *tc, MVMSerializati
 
         /* Add to worklist and process as needed. */
         worklist_add_index(tc, &(sr->wl_objects), idx);
-        if (sr->working == 1)
+        if (MVM_load(&sr->working) == 1)
                 work_loop(tc, sr);
     });
 
     /* Clear up. */
     MVM_gc_allocate_gen2_default_clear(tc);
-    sr->working--;
+    MVM_decr(&sr->working);
     MVM_reentrantmutex_unlock(tc, (MVMReentrantMutex *)sc->body->mutex);
 
     /* Return the (perhaps just stubbed) object. */
@@ -2831,7 +2826,7 @@ MVMSTable * MVM_serialization_demand_stable(MVMThreadContext *tc, MVMSerializati
 
     /* Flag that we're working on some deserialization (and so will run the
      * loop). */
-    sr->working++;
+    MVM_incr(&sr->working);
     MVM_gc_allocate_gen2_default_set(tc);
 
     /* Stub the STable. */
@@ -2840,13 +2835,13 @@ MVMSTable * MVM_serialization_demand_stable(MVMThreadContext *tc, MVMSerializati
 
         /* Add to worklist and process as needed. */
         worklist_add_index(tc, &(sr->wl_stables), idx);
-        if (sr->working == 1)
+        if (MVM_load(&sr->working) == 1)
             work_loop(tc, sr);
     });
 
     /* Clear up. */
     MVM_gc_allocate_gen2_default_clear(tc);
-    sr->working--;
+    MVM_decr(&sr->working);
     MVM_reentrantmutex_unlock(tc, (MVMReentrantMutex *)sc->body->mutex);
 
     /* Return the (perhaps just stubbed) STable. */
@@ -2868,7 +2863,7 @@ MVMObject * MVM_serialization_demand_code(MVMThreadContext *tc, MVMSerialization
 
     /* Flag that we're working on some deserialization (and so will run the
      * loop). */
-    sr->working++;
+    MVM_incr(&sr->working);
     MVM_gc_allocate_gen2_default_set(tc);
 
     MVMROOT(tc, sc, {
@@ -2876,13 +2871,13 @@ MVMObject * MVM_serialization_demand_code(MVMThreadContext *tc, MVMSerialization
         deserialize_closure(tc, sr, idx - sr->num_static_codes);
 
         /* Add to worklist and process as needed. */
-        if (sr->working == 1)
+        if (MVM_load(&sr->working) == 1)
             work_loop(tc, sr);
     });
 
     /* Clear up. */
     MVM_gc_allocate_gen2_default_clear(tc);
-    sr->working--;
+    MVM_decr(&sr->working);
     MVM_reentrantmutex_unlock(tc, (MVMReentrantMutex *)sc->body->mutex);
 
     /* Return the (perhaps just stubbed) STable. */
@@ -3163,9 +3158,9 @@ void MVM_serialization_deserialize(MVMThreadContext *tc, MVMSerializationContext
 
     /* Enter the work loop to deal with the things we immediately need to
      * handle in order to complete repossession object deserialization. */
-    reader->working = 1;
+    MVM_store(&reader->working, 1);
     work_loop(tc, reader);
-    reader->working = 0;
+    MVM_store(&reader->working, 0);
 
     /* Clear serialized data reference in CU. */
     if ((*tc->interp_cu)->body.serialized) {
