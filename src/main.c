@@ -92,7 +92,7 @@ The following environment variables are respected:\n\
     MVM_SPESH_NODELAY           Run dynamic optimization even for cold frames\n\
     MVM_SPESH_LIMIT             Limit the maximum number of specializations\n\
     MVM_JIT_DISABLE             Disables JITting to machine code\n\
-    MVM_JIT_EXPR_DISABLE        Disable advanced 'expression' JIT\n\
+    MVM_JIT_EXPR_ENABLE         Enable advanced 'expression' JIT\n\
     MVM_JIT_DEBUG               Add JIT debugging information to spesh log\n\
     MVM_JIT_PERF_MAP            Create a map file for the 'perf' profiler (linux only)\n\
     MVM_JIT_DUMP_BYTECODE       Dump bytecode in temporary directory\n\
@@ -250,26 +250,6 @@ int wmain(int argc, wchar_t *wargv[])
         }
     }
 
-#ifdef HAVE_TELEMEH
-    if (getenv("MVM_TELEMETRY_LOG")) {
-        char path[256];
-        FILE *fp;
-        snprintf(path, 255, "%s.%d", getenv("MVM_TELEMETRY_LOG"),
-#ifdef _WIN32
-             _getpid()
-#else
-             getpid()
-#endif
-             );
-        fp = MVM_platform_fopen(path, "w");
-        if (fp) {
-            MVM_telemetry_init(fp);
-            telemeh_inited = 1;
-            interval_id = MVM_telemetry_interval_start(0, "moarvm startup");
-        }
-    }
-#endif
-
     lib_path[lib_path_i] = NULL;
 
     if (argi >= argc) {
@@ -305,13 +285,6 @@ int wmain(int argc, wchar_t *wargv[])
 
     if (dump) MVM_vm_dump_file(instance, input_file);
     else MVM_vm_run_file(instance, input_file);
-
-#ifdef HAVE_TELEMEH
-    if (getenv("MVM_TELEMETRY_LOG") && telemeh_inited) {
-        MVM_telemetry_interval_stop(0, interval_id, "moarvm teardown");
-        MVM_telemetry_finish();
-    }
-#endif
 
     if (full_cleanup) {
         MVM_vm_destroy_instance(instance);

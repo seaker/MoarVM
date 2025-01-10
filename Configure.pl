@@ -466,6 +466,7 @@ $config{lddebugflags} = sprintf $config{lddebugflags}, defined_or $args{debug}, 
 # generate CFLAGS
 my @cflags;
 push @cflags, '-std=c99' if $defaults{os} eq 'mingw32';
+push @cflags, '-fwrapv'             if $config{cc} ne 'cl';
 push @cflags, $config{ccmiscflags};
 push @cflags, $config{ccoptiflags}  if $args{optimize};
 push @cflags, $config{ccdebugflags} if $args{debug};
@@ -807,6 +808,26 @@ close $listfile;
 if ($args{'enable-jit'}) {
     print("\nThe --enable-jit flag is obsolete, as jit is enabled by default.\n");
     print("You can use --no-jit to build without jit.");
+}
+
+if (!$failed && $args{asan}) {
+    print "\n", <<ASANTERM;
+
+    !!  Attention  !!  Attention  !!
+
+You have built moarvm with ASAN (address sanitizer) turned on.
+In order to successfully build nqp and rakudo, you need to set this environment
+variable, since moarvm doesn't fully clean up on shutdown by default.
+
+    export ASAN_OPTIONS=detect_leaks=0
+
+For more information about available asan options, you can run moar with
+
+    export ASAN_OPTIONS=help=1
+
+in your environment.
+
+ASANTERM
 }
 
 print "\n", $failed ? <<TERM1 : <<TERM2;

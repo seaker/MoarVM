@@ -26,7 +26,7 @@ static void exit_single_user(MVMThreadContext *tc, MVMArrayBody *arr) {
 static MVMObject * type_object_for(MVMThreadContext *tc, MVMObject *HOW) {
     MVMSTable        *st = MVM_gc_allocate_stable(tc, &VMArray_this_repr, HOW);
 
-    MVMROOT(tc, st, {
+    MVMROOT(tc, st) {
         MVMObject *obj = MVM_gc_allocate_type_object(tc, st);
         MVMArrayREPRData *repr_data = (MVMArrayREPRData *)MVM_malloc(sizeof(MVMArrayREPRData));
 
@@ -37,7 +37,7 @@ static MVMObject * type_object_for(MVMThreadContext *tc, MVMObject *HOW) {
         MVM_ASSIGN_REF(tc, &(st->header), st->WHAT, obj);
         st->size = sizeof(MVMArray);
         st->REPR_data = repr_data;
-    });
+    }
 
     return st->WHAT;
 }
@@ -909,10 +909,12 @@ static void write_buf(MVMThreadContext *tc, MVMSTable *st, MVMObject *root, void
     /* resize the array if necessary*/
     size_t elem_size = repr_data->elem_size;
     /* No need to account for start, set_size_internal will take care of that */
-    if (elems * elem_size < offset * elem_size + count)
+    if (elems * elem_size < offset * elem_size + count) {
         set_size_internal(tc, body, offset + count, repr_data);
+        start = body->start;
+    }
 
-    memcpy(body->slots.u8 + (start + offset) * repr_data->elem_size, from, count);
+    memcpy(body->slots.u8 + (start + offset) * elem_size, from, count);
 }
 
 static MVMint64 read_buf(MVMThreadContext *tc, MVMSTable *st, MVMObject *root, void *data, MVMint64 offset, MVMuint64 count) {
@@ -935,7 +937,7 @@ static MVMint64 read_buf(MVMThreadContext *tc, MVMSTable *st, MVMObject *root, v
 #if MVM_BIGENDIAN
 	+ (8 - count)
 #endif
-	, body->slots.u8 + (start + offset) * repr_data->elem_size, count);
+	, body->slots.u8 + (start + offset) * elem_size, count);
     return result;
 }
 

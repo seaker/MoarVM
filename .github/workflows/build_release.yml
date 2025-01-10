@@ -12,7 +12,7 @@ jobs:
     # Check https://github.com/actions/runner-images#available-images for available GihHub runners
     strategy:
       matrix:
-        posix-os: [ubuntu-22.04, ubuntu-20.04, macos-12, macos-13]
+        posix-os: [ubuntu-22.04, ubuntu-24.04, macos-13, macos-14]
         
     runs-on: ${{ matrix.posix-os }}
     if: github.event.ref_type == 'tag'
@@ -22,6 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-tags: 'true'
+          persist-credentials: false
           ref: ${{ github.event.ref }}
 
       - name: Run "perl Configure.pl"
@@ -47,7 +48,7 @@ jobs:
   build_Windows_MoarVM:
     strategy:
       matrix:
-        windows-os: [windows-2022, windows-2019]
+        windows-os: [windows-2019, windows-2022]
         
     runs-on: ${{ matrix.windows-os }}
     if: github.event.ref_type == 'tag'
@@ -57,6 +58,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-tags: 'true'
+          persist-credentials: false
           ref: ${{ github.event.ref }}
         
       - name: Setup VS Dev Environment

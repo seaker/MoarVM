@@ -751,14 +751,14 @@ static void capture_pos_args_impl(MVMThreadContext *tc, MVMArgs arg_info) {
 
     /* Set up an args processing context and use the standard slurpy args
      * handler to extract all positionals. */
-    MVMROOT(tc, capture, {
+    MVMROOT(tc, capture) {
         MVMArgs capture_args = MVM_capture_to_args(tc, capture);
         MVMArgProcContext capture_ctx;
         MVM_args_proc_setup(tc, &capture_ctx, capture_args);
         MVMObject *result = MVM_args_slurpy_positional(tc, &capture_ctx, 0);
         MVM_args_proc_cleanup(tc, &capture_ctx);
         MVM_args_set_result_obj(tc, result, MVM_RETURN_CURRENT_FRAME);
-    });
+    }
 }
 static MVMDispSysCall capture_pos_args = {
     .c_name = "capture-pos-args",
@@ -1061,17 +1061,17 @@ static MVMDispSysCall try_capture_lex = {
 static void try_capture_lex_callers_impl(MVMThreadContext *tc, MVMArgs arg_info) {
     MVMObject *code = get_obj_arg(arg_info, 0);
     MVMFrame *find;
-    MVMROOT(tc, code, {
+    MVMROOT(tc, code) {
         find = MVM_frame_force_to_heap(tc, tc->cur_frame);
-    });
+    }
     while (find) {
         if (((MVMCode *)code)->body.sf->body.outer == find->static_info) {
             MVMFrame *orig = tc->cur_frame;
             tc->cur_frame = find;
-            MVMROOT(tc, orig, {
+            MVMROOT(tc, orig) {
                 MVM_frame_capturelex(tc, code);
                 tc->cur_frame = orig;
-            });
+            }
             break;
         }
         find = find->caller;
@@ -1278,7 +1278,7 @@ static void handle_open_mode_impl(MVMThreadContext *tc, MVMArgs arg_info) {
         MVMint64 open_mode = handle->body.ops->introspection->mvm_open_mode(tc, handle);
 
         if (open_mode < 1)
-            MVM_exception_throw_adhoc(tc, "Incomprehensible open mode: %lld (valid modes are 1=RO|2=WO|3=RW)", open_mode);
+            MVM_exception_throw_adhoc(tc, "Incomprehensible open mode: %"PRId64" (valid modes are 1=RO|2=WO|3=RW)", open_mode);
 
         MVM_args_set_result_int(tc, (MVMint64) open_mode, MVM_RETURN_CURRENT_FRAME);
     } else {
@@ -1506,6 +1506,30 @@ static MVMDispSysCall stat_is_writable = {
     .expected_concrete = { 1 },
 };
 
+/* all-thread-bt */
+static void all_thread_bt_impl(MVMThreadContext *tc, MVMArgs arg_info) {
+    MVMint64 is_harmless = arg_info.callsite->num_pos == 0 || get_int_arg(arg_info, 0) == 0;
+
+    if (!tc->instance->debugserver) {
+        MVM_debugserver_partial_init(tc);
+    }
+    MVM_dump_all_backtraces(tc, is_harmless);
+
+    if (!is_harmless)
+        exit(2);
+
+    MVM_args_set_result_int(tc, 0, MVM_RETURN_CURRENT_FRAME);
+}
+static MVMDispSysCall all_thread_bt = {
+    .c_name = "all-thread-bt",
+    .implementation = all_thread_bt_impl,
+    .min_args = 0,
+    .max_args = 1,
+    .expected_kinds = { MVM_CALLSITE_ARG_INT },
+    .expected_reprs = { 0 },
+    .expected_concrete = { 1 },
+};
+
 /* stat-is-executable */
 static void stat_is_executable_impl(MVMThreadContext *tc, MVMArgs arg_info) {
     MVMStat    *stat_obj = (MVMStat *)get_obj_arg(arg_info, 0);
@@ -1556,6 +1580,71 @@ static MVMDispSysCall stat_is_executable = {
     .expected_kinds = { MVM_CALLSITE_ARG_OBJ },
     .expected_reprs = { MVM_REPR_ID_MVMStat },
     .expected_concrete = { 1 },
+};
+
+/* telemetry-interval-start */
+static void telemetry_interval_start_impl(MVMThreadContext *tc, MVMArgs arg_info) {
+    unsigned long interval_id = MVM_telemetry_interval_start(tc, (const char *)(get_int_arg(arg_info, 0) % 4096));
+    MVM_args_set_result_int(tc, interval_id, MVM_RETURN_CURRENT_FRAME);
+}
+static MVMDispSysCall telemetry_interval_start = {
+    .c_name = "telemetry-interval-start",
+    .implementation = telemetry_interval_start_impl,
+    .min_args = 1,
+    .max_args = 1,
+    .expected_kinds = { MVM_CALLSITE_ARG_INT },
+    .expected_reprs = { 0 },
+    .expected_concrete = { 1 },
+};
+
+/* telemetry-interval-start */
+static void telemetry_interval_stop_impl(MVMThreadContext *tc, MVMArgs arg_info) {
+    MVM_telemetry_interval_stop(tc, get_int_arg(arg_info, 0), (const char *)(get_int_arg(arg_info, 1) % 4096));
+    MVM_args_set_result_obj(tc, tc->instance->VMNull, MVM_RETURN_CURRENT_FRAME);
+}
+static MVMDispSysCall telemetry_interval_stop = {
+    .c_name = "telemetry-interval-stop",
+    .implementation = telemetry_interval_stop_impl,
+    .min_args = 2,
+    .max_args = 2,
+    .expected_kinds = { MVM_CALLSITE_ARG_INT, MVM_CALLSITE_ARG_INT },
+    .expected_reprs = { 0, 0 },
+    .expected_concrete = { 1, 1 },
+};
+
+/* telemetry-interval-annotate */
+static void telemetry_interval_annotate_impl(MVMThreadContext *tc, MVMArgs arg_info) {
+    char *dyn_str = MVM_string_utf8_encode_C_string(tc, get_str_arg(arg_info, 2));
+    MVM_telemetry_interval_annotate_dynamic(get_int_arg(arg_info, 1), get_int_arg(arg_info, 0), dyn_str);
+    MVM_args_set_result_obj(tc, tc->instance->VMNull, MVM_RETURN_CURRENT_FRAME);
+}
+static MVMDispSysCall telemetry_interval_annotate = {
+    .c_name = "telemetry-interval-annotate",
+    .implementation = telemetry_interval_annotate_impl,
+    .min_args = 3,
+    .max_args = 3,
+    .expected_kinds = { MVM_CALLSITE_ARG_INT, MVM_CALLSITE_ARG_INT, MVM_CALLSITE_ARG_STR },
+    .expected_reprs = { 0, 0, 0 },
+    .expected_concrete = { 1, 1, 1 },
+};
+
+/* telemetry-interval-annotate */
+static void is_debugserver_running_impl(MVMThreadContext *tc, MVMArgs arg_info) {
+    if (tc->instance->debugserver) {
+        MVM_args_set_result_int(tc, tc->instance->debugserver->messagepack_data ? 2 : 1, MVM_RETURN_CURRENT_FRAME);
+    }
+    else {
+        MVM_args_set_result_int(tc, 0, MVM_RETURN_CURRENT_FRAME);
+    }
+}
+static MVMDispSysCall is_debugserver_running = {
+    .c_name = "is-debugserver-running",
+    .implementation = is_debugserver_running_impl,
+    .min_args = 0,
+    .max_args = 0,
+    .expected_kinds = { 0 },
+    .expected_reprs = { 0 },
+    .expected_concrete = { 0 },
 };
 
 /* Add all of the syscalls into the hash. */
@@ -1655,6 +1744,11 @@ void MVM_disp_syscall_setup(MVMThreadContext *tc) {
     add_to_hash(tc, &stat_is_readable);
     add_to_hash(tc, &stat_is_writable);
     add_to_hash(tc, &stat_is_executable);
+    add_to_hash(tc, &all_thread_bt);
+    add_to_hash(tc, &telemetry_interval_start);
+    add_to_hash(tc, &telemetry_interval_stop);
+    add_to_hash(tc, &telemetry_interval_annotate);
+    add_to_hash(tc, &is_debugserver_running);
     MVM_gc_allocate_gen2_default_clear(tc);
 }
 

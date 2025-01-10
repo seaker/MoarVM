@@ -106,13 +106,32 @@ MVMInstance * MVM_vm_create_instance(void) {
     char *spesh_log, *spesh_nodelay, *spesh_disable, *spesh_inline_disable,
          *spesh_osr_disable, *spesh_limit, *spesh_blocking, *spesh_inline_log,
          *spesh_pea_disable;
-    char *jit_expr_disable, *jit_disable, *jit_last_frame, *jit_last_bb;
+    char *jit_expr_enable, *jit_disable, *jit_last_frame, *jit_last_bb;
     char *dynvar_log;
     int init_stat;
 
 #ifndef MVM_THREAD_LOCAL
     static uv_once_t key_once = UV_ONCE_INIT;
     uv_once(&key_once, make_uv_key);
+#endif
+
+#ifdef HAVE_TELEMEH
+    if (getenv("MVM_TELEMETRY_LOG")) {
+        char path[256];
+        FILE *fp;
+        snprintf(path, 255, "%s.%d", getenv("MVM_TELEMETRY_LOG"),
+#ifdef _WIN32
+             _getpid()
+#else
+             getpid()
+#endif
+             );
+        fp = MVM_platform_fopen(path, "w");
+        if (fp) {
+            MVM_telemetry_init(fp);
+            MVM_telemetry_interval_start(0, "moarvm startup");
+        }
+    }
 #endif
 
     /* Set up instance data structure. */
@@ -309,11 +328,11 @@ MVMInstance * MVM_vm_create_instance(void) {
 
     /* JIT environment/logging setup. */
     jit_disable = getenv("MVM_JIT_DISABLE");
-    if (!jit_disable || !jit_disable[0])
+    if (MVM_jit_support() && (!jit_disable || !jit_disable[0]))
         instance->jit_enabled = 1;
 
-    jit_expr_disable = getenv("MVM_JIT_EXPR_DISABLE");
-    if (!jit_expr_disable || strlen(jit_expr_disable) == 0)
+    jit_expr_enable = getenv("MVM_JIT_EXPR_ENABLE");
+    if (jit_expr_enable && strlen(jit_expr_enable) != 0)
         instance->jit_expr_enabled = 1;
 
 
@@ -603,6 +622,13 @@ void MVM_vm_exit(MVMInstance *instance) {
         fclose(instance->dynvar_log_fh);
     }
 
+#ifdef HAVE_TELEMEH
+    if (getenv("MVM_TELEMETRY_LOG")) {
+        MVM_telemetry_interval_stop(0, 1, "moarvm teardown");
+        MVM_telemetry_finish();
+    }
+#endif
+
     /* And, we're done. */
     exit(0);
 }
@@ -761,6 +787,13 @@ void MVM_vm_destroy_instance(MVMInstance *instance) {
      * (e.g., valgrind, heaptrack) don't support mimalloc well. */
     mi_collect(true);
 #endif
+
+#ifdef HAVE_TELEMEH
+    if (getenv("MVM_TELEMETRY_LOG")) {
+        MVM_telemetry_interval_stop(0, 1, "moarvm teardown");
+        MVM_telemetry_finish();
+    }
+#endif
 }
 
 void MVM_vm_set_clargs(MVMInstance *instance, int argc, char **argv) {
@@ -781,7 +814,7 @@ void MVM_vm_event_subscription_configure(MVMThreadContext *tc, MVMObject *queue,
     MVMString *speshoverviewevent;
     MVMString *startup_time;
 
-    MVMROOT2(tc, queue, config, {
+    MVMROOT2(tc, queue, config) {
         if (!IS_CONCRETE(config)) {
             MVM_exception_throw_adhoc(tc, "vmeventsubscribe requires a concrete configuration hash (got a %s type object)", MVM_6model_get_debug_name(tc, config));
         }
@@ -797,12 +830,12 @@ void MVM_vm_event_subscription_configure(MVMThreadContext *tc, MVMObject *queue,
         }
 
         gcevent = MVM_string_utf8_decode(tc, tc->instance->VMString, "gcevent", 7);
-        MVMROOT(tc, gcevent, {
+        MVMROOT(tc, gcevent) {
             speshoverviewevent = MVM_string_utf8_decode(tc, tc->instance->VMString, "speshoverviewevent", 18);
-            MVMROOT(tc, speshoverviewevent, {
+            MVMROOT(tc, speshoverviewevent) {
                 startup_time = MVM_string_utf8_decode(tc, tc->instance->VMString, "startup_time", 12);
-            });
-        });
+            }
+        }
 
         if (MVM_repr_exists_key(tc, config, gcevent)) {
             MVMObject *value = MVM_repr_at_key_o(tc, config, gcevent);
@@ -836,10 +869,10 @@ void MVM_vm_event_subscription_configure(MVMThreadContext *tc, MVMObject *queue,
 
         if (MVM_repr_exists_key(tc, config, startup_time)) {
             /* Value is ignored, it will just be overwritten. */
-            MVMObject *value = NULL; 
-            MVMROOT3(tc, gcevent, speshoverviewevent, startup_time, {
+            MVMObject *value = NULL;
+            MVMROOT3(tc, gcevent, speshoverviewevent, startup_time) {
                     value = MVM_repr_box_num(tc, tc->instance->boot_types.BOOTNum, tc->instance->subscriptions.vm_startup_now);
-            });
+            }
 
             if (MVM_is_null(tc, value)) {
                 uv_mutex_unlock(&tc->instance->subscriptions.mutex_event_subscription);
@@ -847,7 +880,7 @@ void MVM_vm_event_subscription_configure(MVMThreadContext *tc, MVMObject *queue,
             }
             MVM_repr_bind_key_o(tc, config, startup_time, value);
         }
-    });
+    }
 
     uv_mutex_unlock(&tc->instance->subscriptions.mutex_event_subscription);
 }

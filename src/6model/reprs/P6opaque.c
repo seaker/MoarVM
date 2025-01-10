@@ -52,11 +52,11 @@ static MVMint64 try_get_slot(MVMThreadContext *tc, MVMP6opaqueREPRData *repr_dat
 static MVMObject * type_object_for(MVMThreadContext *tc, MVMObject *HOW) {
     MVMSTable *st = MVM_gc_allocate_stable(tc, &P6opaque_this_repr, HOW);
 
-    MVMROOT(tc, st, {
+    MVMROOT(tc, st) {
         MVMObject *obj = MVM_gc_allocate_type_object(tc, st);
         MVM_ASSIGN_REF(tc, &(st->header), st->WHAT, obj);
         st->size = 0; /* Is updated later. */
-    });
+    }
 
     return st->WHAT;
 }
@@ -266,10 +266,50 @@ static void get_attribute(MVMThreadContext *tc, MVMSTable *st, MVMObject *root,
         try_get_slot(tc, repr_data, class_handle, name);
     if (slot >= 0) {
         MVMSTable *attr_st = repr_data->flattened_stables[slot];
-        switch (kind) {
-        case MVM_reg_obj:
-        {
-            if (!attr_st) {
+        if (attr_st) {
+            switch (kind) {
+            case MVM_reg_obj: {
+                MVMROOT2(tc, root, attr_st) {
+                    /* Need to produce a boxed version of this attribute. */
+                    MVMObject *cloned = attr_st->REPR->allocate(tc, attr_st);
+
+                    /* Ordering here matters too. see comments above */
+                    result_reg->o = cloned;
+                    attr_st->REPR->copy_to(tc, attr_st,
+                        (char *)MVM_p6opaque_real_data(tc, OBJECT_BODY(root)) + repr_data->attribute_offsets[slot],
+                        cloned, OBJECT_BODY(cloned));
+                }
+                break;
+            }
+            case MVM_reg_int64: {
+                result_reg->i64 = attr_st->REPR->box_funcs.get_int(tc, attr_st, root,
+                    (char *)data + repr_data->attribute_offsets[slot]);
+                break;
+            }
+            case MVM_reg_uint64: {
+                result_reg->i64 = attr_st->REPR->box_funcs.get_uint(tc, attr_st, root,
+                    (char *)data + repr_data->attribute_offsets[slot]);
+                break;
+            }
+            case MVM_reg_num64: {
+                result_reg->n64 = attr_st->REPR->box_funcs.get_num(tc, attr_st, root,
+                    (char *)data + repr_data->attribute_offsets[slot]);
+                break;
+            }
+            case MVM_reg_str: {
+                result_reg->s = attr_st->REPR->box_funcs.get_str(tc, attr_st, root,
+                    (char *)data + repr_data->attribute_offsets[slot]);
+                break;
+            }
+            default: {
+                MVM_exception_throw_adhoc(tc, "P6opaque: invalid kind in attribute lookup in %s", MVM_6model_get_stable_debug_name(tc, st));
+            }
+            }
+        }
+        else {
+            switch (kind) {
+            case MVM_reg_obj:
+            {
                 MVMObject *result = get_obj_at_offset(data, repr_data->attribute_offsets[slot]);
                 if (result) {
                     result_reg->o = result;
@@ -280,7 +320,7 @@ static void get_attribute(MVMThreadContext *tc, MVMSTable *st, MVMObject *root,
                         MVMObject *value = repr_data->auto_viv_values[slot];
                         if (value != NULL) {
                             if (IS_CONCRETE(value)) {
-                                MVMROOT2(tc, value, root, {
+                                MVMROOT2(tc, value, root) {
                                     MVMObject *cloned = REPR(value)->allocate(tc, STABLE(value));
                                     /* Ordering here matters. We write the object into the
                                     * register before calling copy_to. This is because
@@ -293,7 +333,7 @@ static void get_attribute(MVMThreadContext *tc, MVMSTable *st, MVMObject *root,
                                         cloned, OBJECT_BODY(cloned));
                                     set_obj_at_offset(tc, root, MVM_p6opaque_real_data(tc, OBJECT_BODY(root)),
                                         repr_data->attribute_offsets[slot], result_reg->o);
-                                });
+                                }
                             }
                             else {
                                 set_obj_at_offset(tc, root, data, repr_data->attribute_offsets[slot], value);
@@ -308,56 +348,28 @@ static void get_attribute(MVMThreadContext *tc, MVMSTable *st, MVMObject *root,
                         result_reg->o = tc->instance->VMNull;
                     }
                 }
+                break;
             }
-            else {
-                MVMROOT2(tc, root, attr_st, {
-                    /* Need to produce a boxed version of this attribute. */
-                    MVMObject *cloned = attr_st->REPR->allocate(tc, attr_st);
-
-                    /* Ordering here matters too. see comments above */
-                    result_reg->o = cloned;
-                    attr_st->REPR->copy_to(tc, attr_st,
-                        (char *)MVM_p6opaque_real_data(tc, OBJECT_BODY(root)) + repr_data->attribute_offsets[slot],
-                        cloned, OBJECT_BODY(cloned));
-                });
-            }
-            break;
-        }
-        case MVM_reg_int64: {
-            if (attr_st)
-                result_reg->i64 = attr_st->REPR->box_funcs.get_int(tc, attr_st, root,
-                    (char *)data + repr_data->attribute_offsets[slot]);
-            else
+            case MVM_reg_int64: {
                 invalid_access_kind(tc, "native access", class_handle, name, "int64");
-            break;
-        }
-        case MVM_reg_uint64: {
-            if (attr_st)
-                result_reg->i64 = attr_st->REPR->box_funcs.get_uint(tc, attr_st, root,
-                    (char *)data + repr_data->attribute_offsets[slot]);
-            else
+                break;
+            }
+            case MVM_reg_uint64: {
                 invalid_access_kind(tc, "native access", class_handle, name, "uint64");
-            break;
-        }
-        case MVM_reg_num64: {
-            if (attr_st)
-                result_reg->n64 = attr_st->REPR->box_funcs.get_num(tc, attr_st, root,
-                    (char *)data + repr_data->attribute_offsets[slot]);
-            else
+                break;
+            }
+            case MVM_reg_num64: {
                 invalid_access_kind(tc, "native access", class_handle, name, "num64");
-            break;
-        }
-        case MVM_reg_str: {
-            if (attr_st)
-                result_reg->s = attr_st->REPR->box_funcs.get_str(tc, attr_st, root,
-                    (char *)data + repr_data->attribute_offsets[slot]);
-            else
+                break;
+            }
+            case MVM_reg_str: {
                 invalid_access_kind(tc, "native access", class_handle, name, "str");
-            break;
-        }
-        default: {
-            MVM_exception_throw_adhoc(tc, "P6opaque: invalid kind in attribute lookup in %s", MVM_6model_get_stable_debug_name(tc, st));
-        }
+                break;
+            }
+            default: {
+                MVM_exception_throw_adhoc(tc, "P6opaque: invalid kind in attribute lookup in %s", MVM_6model_get_stable_debug_name(tc, st));
+            }
+            }
         }
     }
     else {
@@ -2445,12 +2457,17 @@ static void dump_p6opaque(MVMThreadContext *tc, MVMObject *obj, int nested) {
                                 if (MVM_BIGINT_IS_BIG(body)) {
                                     mp_int *i = body->u.bigint;
                                     const int bits = mp_count_bits(i);
-                                    char *str = MVM_calloc(1, bits / 8 + 1);
-                                    mp_err err = mp_to_radix(i, str, bits / 8, NULL, 10);
+                                    /* With hexadecimal digits eight bits translates to 2 characters.
+                                     * Not exactly sure why 4 extra seems to be the right magic number,
+                                     * but anything shorter still overflowed. */
+                                    /* This puts a - in between 0x and the number, but this is just a
+                                     * debug helper, so does it really matter? */
+                                    char *str = MVM_calloc(1, bits / 4 + 4);
+                                    mp_err err = mp_to_radix(i, str, bits / 4 + 3, NULL, 16);
                                     if (err != MP_OKAY)
                                         fprintf(stderr, "Error getting the string representation of a big integer: %s", mp_error_to_string(err));
                                     else
-                                        fprintf(stderr, "=%s (%s)", str, i->sign == MP_NEG ? "-" : "+");
+                                        fprintf(stderr, "=0x%s", str);
                                     MVM_free(str);
                                 }
                                 else {

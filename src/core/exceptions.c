@@ -175,13 +175,28 @@ static MVMint32 search_frame_handlers_lex(MVMThreadContext *tc, MVMFrame *f,
     MVMuint32 i;
     MVMuint32 skipping = *skip_first_inlinee;
     MVMFrameHandler *fhs = MVM_frame_effective_handlers(f);
+
+    /* When a LEAVE phaser is run during an unwind, there is no valid
+     * return_address set in the LEAVE phasers outer frame. (It's
+     * return_address is actually set to interp_cur_op, which is still the one
+     * that started the unwind in some unrelated frame.) Thus when a `return`
+     * in a LEAVE happens, the handler of the outer frame is missed, because
+     * `search_frame_handlers_lex()` validates that the `return_address` lies
+     * in the handlers area. Luckily there is a flag set on the LEAVE's outer
+     * frame: MVM_FRAME_FLAG_EXIT_HAND_RUN. We can simply check for that flag
+     * and ignore the frame handlers area. This is fine to do, because frames
+     * that have an exit handler attached can not be inlined.
+     */
+    MVMint32 fehr = f->flags == MVM_FRAME_FLAG_EXIT_HAND_RUN;
+
     if (f->spesh_cand && f->spesh_cand->body.jitcode && f->jit_entry_label) {
         MVMJitCode *jitcode = f->spesh_cand->body.jitcode;
         void *current_position = MVM_jit_code_get_current_position(tc, jitcode, f);
         MVMJitHandler    *jhs = jitcode->handlers;
-        for (i = MVM_jit_code_get_active_handlers(tc, jitcode, current_position, 0);
+
+        for (i = fehr ? 0 : MVM_jit_code_get_active_handlers(tc, jitcode, current_position, 0);
              i < jitcode->num_handlers;
-             i = MVM_jit_code_get_active_handlers(tc, jitcode, current_position, i+1)) {
+             i = fehr ? i+1 : MVM_jit_code_get_active_handlers(tc, jitcode, current_position, i+1)) {
             MVMFrameHandler *fh = &(fhs[i]);
             if (skip_all_inlinees && fh->inlinee >= 0)
                 continue;
@@ -248,8 +263,8 @@ static MVMint32 search_frame_handlers_lex(MVMThreadContext *tc, MVMFrame *f,
             }
             if (skipping || !handler_can_handle(f, fh, cat, payload))
                 continue;
-            if (pc >= fh->start_offset &&
-                    pc <= fh->end_offset &&
+            if (((pc >= fh->start_offset && pc <= fh->end_offset) ||
+                    fehr) &&
                     !in_handler_stack(tc, fh, f)) {
                 if (skipping && f->static_info->body.is_thunk)
                     return 0;
@@ -364,9 +379,9 @@ static void run_handler(MVMThreadContext *tc, LocatedHandler lh, MVMObject *ex_o
         /* Ensure we have an exception object. */
         MVMFrame *cur_frame = tc->cur_frame;
         if (ex_obj == NULL) {
-            MVMROOT3(tc, cur_frame, lh.frame, payload, {
+            MVMROOT3(tc, cur_frame, lh.frame, payload) {
                 ex_obj = MVM_repr_alloc_init(tc, tc->instance->boot_types.BOOTException);
-            });
+            }
             ((MVMException *)ex_obj)->body.category = category;
             MVM_ASSIGN_REF(tc, &(ex_obj->header), ((MVMException *)ex_obj)->body.payload, payload);
         }
@@ -610,12 +625,12 @@ MVMObject * MVM_exception_backtrace_strings(MVMThreadContext *tc, MVMObject *ex_
     else
         MVM_exception_throw_adhoc(tc, "Op 'backtracestrings' needs an exception object");
 
-    MVMROOT(tc, ex, {
+    MVMROOT(tc, ex) {
         arr = MVM_repr_alloc_init(tc, tc->instance->boot_types.BOOTArray);
 
         cur_frame = ex->body.origin;
 
-        MVMROOT2(tc, arr, cur_frame, {
+        MVMROOT2(tc, arr, cur_frame) {
             MVMuint32 count = 0;
             while (cur_frame != NULL) {
                 char *line = MVM_exception_backtrace_line(tc, cur_frame, count++,
@@ -626,8 +641,8 @@ MVMObject * MVM_exception_backtrace_strings(MVMThreadContext *tc, MVMObject *ex_
                 cur_frame = cur_frame->caller;
                 MVM_free(line);
             }
-        });
-    });
+        }
+    }
 
     return arr;
 }
@@ -636,7 +651,7 @@ MVMObject * MVM_exception_backtrace_strings(MVMThreadContext *tc, MVMObject *ex_
 void MVM_dump_backtrace(MVMThreadContext *tc) {
     MVMFrame *cur_frame = tc->cur_frame;
     MVMuint32 count = 0;
-    MVMROOT(tc, cur_frame, {
+    MVMROOT(tc, cur_frame) {
         while (cur_frame != NULL) {
             char *line = MVM_exception_backtrace_line(tc, cur_frame, count++,
                 *(tc->interp_cur_op));
@@ -644,7 +659,7 @@ void MVM_dump_backtrace(MVMThreadContext *tc) {
             MVM_free(line);
             cur_frame = cur_frame->caller;
         }
-    });
+    }
 }
 
 /* Panic over an unhandled exception throw by category. */
@@ -675,9 +690,9 @@ static void panic_unhandled_ex(MVMThreadContext *tc, MVMException *ex) {
     char *backtrace;
 
     /* If a debug session is running, notify the client. */
-    MVMROOT(tc, ex, {
+    MVMROOT(tc, ex) {
         MVM_debugserver_notify_unhandled_exception(tc, ex);
-    });
+    }
 
     /* If it's a control exception, try promoting it to a catch one; use
      * the category name. */
@@ -735,9 +750,9 @@ void MVM_exception_throwcat(MVMThreadContext *tc, MVMuint8 mode, MVMuint32 cat, 
 
 void MVM_exception_die(MVMThreadContext *tc, MVMString *str, MVMRegister *rr) {
     MVMException *ex;
-    MVMROOT(tc, str, {
+    MVMROOT(tc, str) {
         ex = (MVMException *)MVM_repr_alloc_init(tc, tc->instance->boot_types.BOOTException);
-    });
+    }
     ex->body.category = MVM_EX_CAT_CATCH;
     MVM_ASSIGN_REF(tc, &(ex->common.header), ex->body.message, str);
     MVM_exception_throwobj(tc, MVM_EX_THROW_DYN, (MVMObject *)ex, rr);
@@ -754,9 +769,9 @@ void MVM_exception_throwobj(MVMThreadContext *tc, MVMuint8 mode, MVMObject *ex_o
     /* The current frame will be assigned as the thrower of the exception, so
      * force it onto the heap before we begin (promoting it later would mean
      * outer handler search result would be outdated). */
-    MVMROOT(tc, ex_obj, {
+    MVMROOT(tc, ex_obj) {
         MVM_frame_force_to_heap(tc, tc->cur_frame);
-    });
+    }
 
     if (IS_CONCRETE(ex_obj) && REPR(ex_obj)->ID == MVM_REPR_ID_MVMException)
         ex = (MVMException *)ex_obj;
@@ -842,6 +857,9 @@ MVM_NO_RETURN void MVM_panic(MVMint32 exitCode, const char *messageFormat, ...) 
     vfprintf(stderr, messageFormat, args);
     va_end(args);
     fputc('\n', stderr);
+    /* Make sure we flush the telemetry buffer before exiting. */
+    MVM_telemetry_timestamp(NULL, "moarvm paniced.");
+    MVM_telemetry_finish();
     if (crash_on_error)
         abort();
     else
@@ -866,6 +884,9 @@ MVM_NO_RETURN void MVM_oops(MVMThreadContext *tc, const char *messageFormat, ...
     vfprintf(stderr, messageFormat, args);
     va_end(args);
     fputc('\n', stderr);
+
+    MVM_telemetry_timestamp(tc, "moarvm oopsed.");
+    MVM_telemetry_finish();
 
     /* Our caller is seriously buggy if tc is NULL */
     if (!tc)
@@ -927,7 +948,7 @@ MVM_NO_RETURN void MVM_exception_throw_adhoc_free_va(MVMThreadContext *tc, char 
 
     /* Create and set up an exception object. */
     ex = (MVMException *)MVM_repr_alloc_init(tc, tc->instance->boot_types.BOOTException);
-    MVMROOT(tc, ex, {
+    MVMROOT(tc, ex) {
         char      *c_message = MVM_malloc(1024);
         int        bytes     = vsnprintf(c_message, 1024, messageFormat, args);
         int        to_encode = bytes > 1024 ? 1024 : bytes;
@@ -949,7 +970,7 @@ MVM_NO_RETURN void MVM_exception_throw_adhoc_free_va(MVMThreadContext *tc, char 
             ex->body.origin = NULL;
         }
         ex->body.category = MVM_EX_CAT_CATCH;
-    });
+    }
 
     /* Try to locate a handler, so long as we're in the interpreter. */
     if (tc->interp_cur_op)
