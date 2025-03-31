@@ -144,14 +144,13 @@ MVMInstance * MVM_vm_create_instance(void) {
     instance->subscriptions.vm_startup_now = MVM_proc_time(instance->main_thread);
 
 #if MVM_HASH_RANDOMIZE
-    /* Get the 128-bit hashSecret */
-    MVM_getrandom(instance->main_thread, instance->hashSecrets, sizeof(MVMuint64) * 2);
+    /* Get the 64-bit hashSeed */
+    MVM_getrandom(instance->main_thread, &instance->hashSeed, sizeof(MVMuint64));
     /* Just in case MVM_getrandom didn't work, XOR it with some (poorly) randomized data */
-    instance->hashSecrets[0] ^= ptr_hash_64_to_64((uintptr_t)instance);
-    instance->hashSecrets[1] ^= MVM_proc_getpid(instance->main_thread) * MVM_platform_now();
+    instance->hashSeed ^= ptr_hash_64_to_64((uintptr_t)instance);
+    instance->hashSeed ^= MVM_proc_getpid(instance->main_thread) * MVM_platform_now();
 #else
-    instance->hashSecrets[0] = 0;
-    instance->hashSecrets[1] = 0;
+    instance->hashSeed = RAPID_SEED;
 #endif
     instance->main_thread->thread_id = 1;
 
@@ -608,6 +607,11 @@ void MVM_vm_exit(MVMInstance *instance) {
     /* Join any foreground threads and flush standard handles. */
     MVM_thread_join_foreground(instance->main_thread);
     MVM_io_flush_standard_handles(instance->main_thread);
+
+    /* Make sure eventloop thread doesn't keep running, so cleanup inside of
+     * atexit handlers (like mimalloc has) won't interfere and cause a crash */
+    MVM_io_eventloop_stop(instance->main_thread);
+    MVM_io_eventloop_join(instance->main_thread);
 
     /* Close any spesh or jit log. */
     if (instance->spesh_log_fh) {

@@ -1,3 +1,77 @@
+New in 2025.03
+
+Core:
++ Safely handle filenameless CUs in throw_closure_serialization_error [3ecde0a0f]
++ In regular vm exit, stop and join eventloop (#1924) [4ae74411e]
++ Don't turn slurpies into huge amounts of code (#1921) [282254418]
++ Only look for lexicals in frames that have any [c153f9f70]
++ Save allocating a string in decodestream for empty string [3edbf6db7]
++ MVM_platform_sleep takes no tc argument (#1918) [0416a0974]
++ use GetSystemTimePreciseAsFileTime instead of GetSystemTimeAsFileTime [49b013ed8]
++ Pre-size bstack for exact amount getting added [597a8ba82]
+GC:
++ Avoid segfault in GC with nqp::objectid [ccfe7ebad]
+Spesh:
++ Avoid mis-spesh of routines with multiple slurpies of the same kind [455eae34f]
+
+New in 2025.02
+
+Core:
++ Optimize passing CPointer to nativecall ever so slightly [6f19ada9]
++ Turn off vla errors and bump libuv [05cc853e]
++ Counteract drift in timers with repeat [8bc35a9d]
++ Enable experimental c11 atomics on MSVC [7ff15b3e]
++ Debugserver loaded file notifications [fc2d31f3]
++ Convert old perl6 refs to Raku [21f32c03]
++ Add type specialized VMArray atpos implementations [d3e812e4]
++ gdb string pretty printer improvement [2dda0262]
+
+Documentation:
++ Update many Perl 6 -> Rakudo [2744dcc7]
+
+GC:
+
+JIT:
+
+Spesh:
++ Make accesses to spesh arg guard atomic [a70bc220]
+
+Strings:
++ Use rapidhash instead of siphash for string hashes [62765054]
++ Speedup MVM_string_find_cclass by adding cases... [a0b70918][21d96b37]
++ Maybe optimize MVM_string_latin1_decode() [16eecc4e]
++ Some simplifications to MVM_string_utf8_decode [9a1af71f][474faf87][aa11775c]
+  [c9eeb2a1]
+
+CI:
+
+New in 2025.01
+
+Core:
++ Fix MVM_setjmp on 32bit Windows [caf97bf0]
++ Micro-optimize P6opaque's get_attribute() (#1884) [df1715d6]
++ Remove temporary define for migrating Rakudo extops (#1671) [7d15fcab]
++ Fix OS-is-windows check that doesn't work in this file [4f183bc0]
++ Use correct fallthrough annotation (#1885) [9a1aebb3]
++ Port over "cache devshell dll location" from rakudo CI [fa5bfd92]
++ Install gdb extension (#1848) [1c2ea87e]
+
+Documentation:
++ beautify release_guide.md [8102c510]
+
+JIT:
++ Don't try to enable the JIT unless it's possible (#1887) [dd98cb2e]
+
+Spesh:
++ Guard against out-of-bounds jumps in spesh arg guard program. [52d3452e]
+
+CI:
++ Maybe the order jobs are started is alphabetical? [777294c4]
++ Fix format specifiers clang on OSX complains about [c1d1f60e]
++ GH Actions: Remove the deprecated macos-12 runner [1f5bf409]
++ Do not persist tokens in CI artifacts [afc8354b]
++ Change comment style because gcc complains [6f3f53c4]
+
 New in 2024.12
 
 Core:
@@ -387,7 +461,7 @@ Core:
 + Protect the two property code lookup hashes being set up with a mutex
   [9bc1beed]
 + Add fallback resolver [43e60db9][a6fbcf6b][35064bf9][c89c3ec8][5d0f92c6]
-+ Add definition of AI_NUMERICSERV, fixes build on MacOS 10.6 for ppc 
++ Add definition of AI_NUMERICSERV, fixes build on MacOS 10.6 for ppc
   [976c1168]
 + Add unsigned comparison ops (eq, ne, (l|g)(e|t)) [c77dc1d4]
 + Add chown op [c69534c6][a1cbb9c4]

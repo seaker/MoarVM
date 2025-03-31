@@ -1296,7 +1296,7 @@ sub emit_unicode_property_keypairs {
         }
     }
     # Make sure General_Category and Script Property values are added first.
-    # These are the only ones (iirc) that are guaranteed in Perl 6.
+    # These are the only ones (iirc) that are guaranteed in Rakudo.
     for my $key (qw(gc sc), sort keys %$PROP_NAMES) {
         for (@{ $aliases{$key} }) {
             next if $PROP_NAMES->{$_};
@@ -2303,4 +2303,4 @@ sub register_enumerated_property {
 
 main();
 
-# vim: ft=perl6 expandtab sw=4
+# vim: ft=raku expandtab sw=4
