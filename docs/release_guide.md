@@ -2,8 +2,8 @@
 
 ## Versions
 
-MoarVM currently has a **monthly release cycle**, with releases made in time for
-the month's **NQP** and **Rakudo** release.
+MoarVM's release cycle currently tracks Rakudo & NQP's release cycle. This is
+*typically* monthly. Releases are done by the Rakudo Release Manager.
 
 Version numbers are simply `YYYY.MM`. For example, the **January 2014 release** is
 `2014.01`.
@@ -43,7 +43,8 @@ be made, they should be numbered as `2014.01`**.1**, `2014.01`**.2**, etc.
 7. Commit the changes.  Typically the message is just "Update changelog and
    version".
 
-8. Run `make release VERSION=2014.01`, substituting the correct version.
+8. Run `make release VERSION=2014.01`, substituting the correct version. You may have
+   to run `perl Configure.pl` first to generate a makefile if this is a fresh clone.
 
 Note:
 the version here must match the branch name or this command errors out. However, this means
@@ -119,14 +120,14 @@ but recreate it with the correct internal folder name so you can follow the rema
 
 20. If both look good, push with `git push origin master`
 
-21. Merge the release Pull Request.
+21. Merge the release Pull Request. DO NOT SQUASH.
 
 22. There is a [github workflow](.github/workflows/build_release.yml) (commit 2a60bd07bd3b90d6d5c5d30311bdb5cb2f0f2a59, added on Mar 16, 2024) that creates the github
     release after a `git tag` was pushed.  You just have to wait a few minutes for it to happen after the
     pushes.  Once it appears you have to add the release assets (the tarball and
     the sig file) by hand.  If need be the old way should still work, which is available in `tools/releasable/github-release.p6`:
 
-        raku github-release.p6 --repo=MoarVM/MoarVM --tag=2014.01 --token=... --asset=MoarVM-2014.01.tar.gz --asset=MoarVM-2014.01.tar.gz.asc
+        raku github-release.p6 --repo=MoarVM/MoarVM --tag=2014.01 --token=$(cat ~/.ghtoken-raku-release) --asset=MoarVM-2014.01.tar.gz --asset=MoarVM-2014.01.tar.gz.asc
 
     but the asset upload is broken so still have to get those up by hand.
 
